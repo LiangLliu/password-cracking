@@ -11,7 +11,7 @@ indicatif = "0.17"
 anyhow = "1.0"
 
 # ZIP解密
-zip = { version = "2.2", features = ["aes-crypto"] }
+zip = { version = "6.0", features = ["aes-crypto"] }
 
 # 密码学（当前使用的）
 sha2 = "0.10"
