@@ -1,0 +1,9 @@
+.venv
+
+!test.docx
+!test.xlsx
+!test.pdf
+!test.pptx
+!test.zip
+
+

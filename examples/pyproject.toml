@@ -1,0 +1,13 @@
+[project]
+name = "examples"
+version = "0.1.0"
+description = "Test files for password cracking tool"
+requires-python = ">=3.11"
+dependencies = [
+    "PyPDF2>=3.0.0",
+    "reportlab>=4.0.0",
+    "python-docx>=0.8.11",
+    "openpyxl>=3.1.2",
+    "python-pptx>=0.6.21",
+    "msoffcrypto-tool>=5.0.0",
+]
