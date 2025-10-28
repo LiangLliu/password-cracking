@@ -1,0 +1,74 @@
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+template: |
+  ## 🎉 Password Cracking Tool v$RESOLVED_VERSION
+
+  ## 📋 更新内容 (Changes)
+
+  $CHANGES
+
+  ## 🙏 感谢贡献者 (Contributors)
+
+  $CONTRIBUTORS
+
+categories:
+  - title: '🚀 新功能 (Features)'
+    labels:
+      - 'feature'
+      - 'enhancement'
+  - title: '🐛 修复 (Bug Fixes)'
+    labels:
+      - 'fix'
+      - 'bugfix'
+      - 'bug'
+  - title: '🧰 维护 (Maintenance)'
+    labels:
+      - 'chore'
+      - 'maintenance'
+  - title: '📚 文档 (Documentation)'
+    labels:
+      - 'documentation'
+      - 'docs'
+  - title: '⚡️ 性能优化 (Performance)'
+    labels:
+      - 'performance'
+      - 'optimization'
+  - title: '🔒 安全 (Security)'
+    labels:
+      - 'security'
+
+change-template: '- $TITLE @$AUTHOR (#$NUMBER)'
+change-title-escapes: '\<*_&' # You can add # and @ to disable mentions, and add ` to disable code blocks.
+
+version-resolver:
+  major:
+    labels:
+      - 'major'
+  minor:
+    labels:
+      - 'minor'
+  patch:
+    labels:
+      - 'patch'
+  default: patch
+
+exclude-labels:
+  - 'skip-changelog'
+  - 'dependencies'
+
+autolabeler:
+  - label: 'chore'
+    files:
+      - '*.md'
+    branch:
+      - '/chore\/.+/'
+  - label: 'bug'
+    branch:
+      - '/fix\/.+/'
+    title:
+      - '/fix/i'
+  - label: 'enhancement'
+    branch:
+      - '/feature\/.+/'
+    title:
+      - '/feat/i'

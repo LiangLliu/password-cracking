@@ -31,12 +31,12 @@ pub trait PasswordGenerator: Send + Sync {
 
 pub fn create_generator(mode: GeneratorMode) -> Result<Box<dyn PasswordGenerator>> {
     match mode {
-        GeneratorMode::Dictionary { path } => {
-            Ok(Box::new(DictionaryGenerator::new(&path)?))
-        }
-        GeneratorMode::BruteForce { charset, min_length, max_length } => {
-            Ok(Box::new(BruteForceGenerator::new(charset, min_length, max_length)?))
-        }
+        GeneratorMode::Dictionary { path } => Ok(Box::new(DictionaryGenerator::new(&path)?)),
+        GeneratorMode::BruteForce {
+            charset,
+            min_length,
+            max_length,
+        } => Ok(Box::new(BruteForceGenerator::new(charset, min_length, max_length)?)),
         GeneratorMode::Hybrid { .. } => {
             todo!("Hybrid mode not implemented yet")
         }

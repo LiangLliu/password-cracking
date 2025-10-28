@@ -1,8 +1,8 @@
 use super::PasswordGenerator;
-use std::fs::{File, read_dir};
+use anyhow::{Context, Result};
+use std::fs::{read_dir, File};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use anyhow::{Result, Context};
 
 pub struct DictionaryGenerator {
     passwords: Vec<String>,
@@ -45,12 +45,10 @@ impl DictionaryGenerator {
             .with_context(|| format!("Failed to open dictionary file: {:?}", path))?;
 
         let reader = BufReader::new(file);
-        for line in reader.lines() {
-            if let Ok(password) = line {
-                let password = password.trim();
-                if !password.is_empty() && !password.starts_with('#') {
-                    passwords.push(password.to_string());
-                }
+        for password in reader.lines().map_while(Result::ok) {
+            let password = password.trim();
+            if !password.is_empty() && !password.starts_with('#') {
+                passwords.push(password.to_string());
             }
         }
 
@@ -139,14 +137,14 @@ impl PasswordMutation {
             }
             PasswordMutation::Uppercase => Some(password.to_uppercase()),
             PasswordMutation::Lowercase => Some(password.to_lowercase()),
-            PasswordMutation::L33tSpeak => {
-                Some(password
+            PasswordMutation::L33tSpeak => Some(
+                password
                     .replace('a', "@")
                     .replace('e', "3")
                     .replace('i', "1")
                     .replace('o', "0")
-                    .replace('s', "$"))
-            }
+                    .replace('s', "$"),
+            ),
             _ => None, // Other mutations would need more complex implementation
         }
     }

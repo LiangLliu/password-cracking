@@ -1,10 +1,10 @@
 use super::DocumentCracker;
-use anyhow::{Result, Context};
-use std::path::Path;
+use anyhow::{Context, Result};
+use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::Read;
+use std::path::Path;
 use zip::ZipArchive;
-use sha2::{Sha256, Digest};
 
 pub struct OfficeCracker {
     file_path: String,
@@ -13,10 +13,10 @@ pub struct OfficeCracker {
 
 #[derive(Debug)]
 struct EncryptionInfo {
-    key_size: usize,
+    _key_size: usize,
     salt: Vec<u8>,
-    encrypted_verifier: Vec<u8>,
-    encrypted_verifier_hash: Vec<u8>,
+    _encrypted_verifier: Vec<u8>,
+    _encrypted_verifier_hash: Vec<u8>,
     spin_count: u32,
 }
 
@@ -28,8 +28,8 @@ impl OfficeCracker {
         let file = File::open(&path)
             .with_context(|| format!("Failed to open Office file: {}", file_path))?;
 
-        let mut archive = ZipArchive::new(file)
-            .with_context(|| "Failed to read Office file as ZIP")?;
+        let mut archive =
+            ZipArchive::new(file).with_context(|| "Failed to read Office file as ZIP")?;
 
         // 检查是否存在加密信息
         let encryption_info = Self::extract_encryption_info(&mut archive)?;
@@ -42,13 +42,13 @@ impl OfficeCracker {
 
     fn extract_encryption_info(archive: &mut ZipArchive<File>) -> Result<EncryptionInfo> {
         // 查找EncryptionInfo stream
-        let has_standard = archive.file_names()
-            .any(|name| name == "EncryptionInfo");
+        let has_standard = archive.file_names().any(|name| name == "EncryptionInfo");
 
         let mut encryption_entry = if has_standard {
             archive.by_name("EncryptionInfo")?
         } else {
-            archive.by_name("0EncryptionInfo")
+            archive
+                .by_name("0EncryptionInfo")
                 .context("Document is not encrypted")?
         };
 
@@ -58,10 +58,10 @@ impl OfficeCracker {
         // 简化的加密信息解析
         // 实际实现需要根据Office加密规范解析二进制数据
         Ok(EncryptionInfo {
-            key_size: 256,
-            salt: vec![0; 16], // 占位符
-            encrypted_verifier: vec![0; 16], // 占位符
-            encrypted_verifier_hash: vec![0; 32], // 占位符
+            _key_size: 256,
+            salt: vec![0; 16],                     // 占位符
+            _encrypted_verifier: vec![0; 16],      // 占位符
+            _encrypted_verifier_hash: vec![0; 32], // 占位符
             spin_count: 100000,
         })
     }

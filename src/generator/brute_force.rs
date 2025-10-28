@@ -1,5 +1,5 @@
 use super::PasswordGenerator;
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 
 pub struct BruteForceGenerator {
     charset: Vec<char>,
@@ -52,7 +52,8 @@ impl BruteForceGenerator {
     }
 
     fn indices_to_string(&self) -> String {
-        self.current_indices.iter()
+        self.current_indices
+            .iter()
             .map(|&idx| self.charset[idx])
             .collect()
     }
@@ -115,9 +116,7 @@ mod tests {
     fn test_brute_force_simple() {
         let mut gen = BruteForceGenerator::new("abc".to_string(), 1, 2).unwrap();
 
-        let passwords: Vec<String> = std::iter::from_fn(|| gen.next())
-            .take(20)
-            .collect();
+        let passwords: Vec<String> = std::iter::from_fn(|| gen.next()).take(20).collect();
 
         assert_eq!(passwords[0], "a");
         assert_eq!(passwords[1], "b");

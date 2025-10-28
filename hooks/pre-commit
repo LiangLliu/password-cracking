@@ -1,0 +1,145 @@
+#!/bin/bash
+
+# Git pre-commit hook - 在提交前自动运行代码检查
+# 该文件应被复制或链接到 .git/hooks/pre-commit
+
+set -e
+
+# 颜色定义
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+print_header() {
+    echo -e "\n${BLUE}=== Pre-commit Hook: $1 ===${NC}\n"
+}
+
+print_success() {
+    echo -e "${GREEN}[✓]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[✗]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[!]${NC} $1"
+}
+
+# 设置环境变量，让 fmt.sh 知道是在 Git hook 中运行
+export GIT_HOOK_RUNNING=1
+
+# 获取项目根目录
+PROJECT_ROOT=$(git rev-parse --show-toplevel)
+cd "$PROJECT_ROOT"
+
+print_header "运行代码检查"
+
+# 检查是否有 Rust 文件的更改
+if git diff --cached --name-only | grep -q '\.rs$'; then
+    print_warning "检测到 Rust 文件更改，运行代码检查..."
+
+    # 暂存当前的更改
+    print_header "保存工作区状态"
+    # 创建一个临时的 stash，包含未暂存的更改
+    STASH_NAME="pre-commit-$(date +%s)"
+    git stash save --keep-index --include-untracked "$STASH_NAME" > /dev/null 2>&1 || true
+    STASHED=$?
+
+    # 运行格式化脚本（只对暂存的文件）
+    if ./scripts/fmt.sh --skip-tests; then
+        print_success "代码检查通过"
+        CHECKS_PASSED=true
+    else
+        print_error "代码检查失败"
+        CHECKS_PASSED=false
+    fi
+
+    # 恢复工作区
+    if [ $STASHED -eq 0 ]; then
+        print_header "恢复工作区状态"
+        # 查找我们创建的 stash
+        STASH_ID=$(git stash list | grep "$STASH_NAME" | cut -d: -f1 | head -n1)
+        if [ -n "$STASH_ID" ]; then
+            git stash pop "$STASH_ID" > /dev/null 2>&1 || true
+        fi
+    fi
+
+    if [ "$CHECKS_PASSED" = false ]; then
+        print_error "提交被阻止：代码不符合规范"
+        echo ""
+        echo "请运行以下命令修复问题："
+        echo "  ./scripts/fmt.sh"
+        echo ""
+        echo "或者使用 --no-verify 跳过检查（不推荐）："
+        echo "  git commit --no-verify"
+        exit 1
+    fi
+else
+    print_success "没有 Rust 文件更改，跳过代码检查"
+fi
+
+# 检查提交信息格式（可选）
+print_header "其他检查"
+
+# 检查是否有大文件
+LARGE_FILES=""
+for file in $(git diff --cached --name-only); do
+    # 检查文件是否存在于工作区（新文件或修改的文件）
+    if [ -f "$file" ]; then
+        size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo 0)
+        if [ "$size" -gt 5242880 ]; then  # 5MB
+            LARGE_FILES="${LARGE_FILES}${size} ${file}\n"
+        fi
+    fi
+done
+
+if [ -n "$LARGE_FILES" ]; then
+    print_warning "发现大文件（> 5MB）："
+    echo -e "$LARGE_FILES" | sort -nr | while read -r size file; do
+        if [ -n "$size" ] && [ -n "$file" ]; then
+            size_mb=$((size / 1048576))
+            echo "  - $file (${size_mb}MB)"
+        fi
+    done
+    echo ""
+    read -p "确定要提交这些大文件吗？(y/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
+fi
+
+# 检查是否有敏感信息
+print_warning "检查敏感信息..."
+SENSITIVE_PATTERNS=(
+    "password.*=.*['\"].*['\"]"
+    "api[_-]?key.*=.*['\"].*['\"]"
+    "secret.*=.*['\"].*['\"]"
+    "token.*=.*['\"].*['\"]"
+)
+
+FOUND_SENSITIVE=false
+for pattern in "${SENSITIVE_PATTERNS[@]}"; do
+    # 只检查暂存的文件，排除 hooks 目录和脚本文件
+    FILES=$(git diff --cached --name-only | grep -v "^hooks/" | grep -v "^scripts/" | grep -v "^\.github/" || true)
+    if [ -n "$FILES" ]; then
+        if echo "$FILES" | xargs grep -i -E "$pattern" 2>/dev/null; then
+            FOUND_SENSITIVE=true
+        fi
+    fi
+done
+
+if $FOUND_SENSITIVE; then
+    print_error "可能包含敏感信息！"
+    echo ""
+    read -p "确定要继续提交吗？(y/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
+fi
+
+print_success "Pre-commit 检查完成"

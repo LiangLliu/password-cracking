@@ -1,18 +1,18 @@
 use super::DocumentCracker;
-use anyhow::{Result, Context};
-use std::path::Path;
+use anyhow::{Context, Result};
 use std::fs;
+use std::path::Path;
 
 pub struct PdfCracker {
     file_path: String,
-    file_data: Vec<u8>,
+    _file_data: Vec<u8>,
 }
 
 impl PdfCracker {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let file_path = path.as_ref().to_string_lossy().to_string();
-        let file_data = fs::read(&path)
-            .with_context(|| format!("Failed to read PDF file: {}", file_path))?;
+        let file_data =
+            fs::read(&path).with_context(|| format!("Failed to read PDF file: {}", file_path))?;
 
         // 验证是否是加密的PDF
         if !Self::is_encrypted(&file_data)? {
@@ -21,7 +21,7 @@ impl PdfCracker {
 
         Ok(Self {
             file_path,
-            file_data,
+            _file_data: file_data,
         })
     }
 

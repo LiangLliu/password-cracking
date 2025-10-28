@@ -1,6 +1,6 @@
+use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
-use anyhow::{Result, Context};
 
 /// 常用密码字符集
 pub mod charsets {
@@ -29,8 +29,7 @@ pub fn validate_file(path: &Path) -> Result<()> {
     }
 
     // 尝试打开文件以验证权限
-    fs::File::open(path)
-        .with_context(|| format!("Cannot read file: {:?}", path))?;
+    fs::File::open(path).with_context(|| format!("Cannot read file: {:?}", path))?;
 
     Ok(())
 }
@@ -43,12 +42,10 @@ pub fn validate_wordlist(path: &Path) -> Result<()> {
 
     if path.is_file() {
         // 如果是文件，验证是否可读
-        fs::File::open(path)
-            .with_context(|| format!("Cannot read file: {:?}", path))?;
+        fs::File::open(path).with_context(|| format!("Cannot read file: {:?}", path))?;
     } else if path.is_dir() {
         // 如果是目录，验证是否可以列出内容
-        fs::read_dir(path)
-            .with_context(|| format!("Cannot read directory: {:?}", path))?;
+        fs::read_dir(path).with_context(|| format!("Cannot read directory: {:?}", path))?;
     } else {
         anyhow::bail!("Path is neither a file nor a directory: {:?}", path);
     }

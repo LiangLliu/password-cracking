@@ -1,0 +1,45 @@
+# rustfmt 配置文件
+# 参考: https://rust-lang.github.io/rustfmt/
+# 注意：这个配置文件只包含稳定版本的选项
+
+# 基本设置
+edition = "2021"
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+
+# 导入语句
+reorder_imports = true
+reorder_modules = true
+
+# 格式化选项
+use_small_heuristics = "Default"
+use_field_init_shorthand = true
+use_try_shorthand = true
+
+# 函数
+fn_call_width = 80
+
+# 链式调用
+chain_width = 60
+
+# 以下是 nightly 版本才支持的选项，暂时注释掉
+# 如果您使用 nightly 版本，可以取消注释这些选项
+
+# imports_granularity = "Crate"
+# group_imports = "StdExternalCrate"
+# format_code_in_doc_comments = true
+# format_strings = false
+# format_macro_matchers = true
+# format_macro_bodies = true
+# normalize_comments = true
+# wrap_comments = true
+# comment_width = 80
+# trailing_comma = "Vertical"
+# trailing_semicolon = true
+# struct_lit_single_line = true
+# enum_discrim_align_threshold = 0
+# blank_lines_upper_bound = 1
+# fn_params_layout = "Tall"
+# force_explicit_abi = true
+# newline_style = "Unix"

@@ -1,6 +1,6 @@
-pub mod pdf;
-pub mod office;
 pub mod archive;
+pub mod office;
+pub mod pdf;
 pub mod zip_crypto;
 
 use anyhow::Result;
@@ -20,7 +20,8 @@ pub trait DocumentCracker: Send + Sync {
 
 /// 根据文件扩展名创建相应的破解器
 pub fn create_cracker(path: &Path) -> Result<Box<dyn DocumentCracker>> {
-    let extension = path.extension()
+    let extension = path
+        .extension()
         .and_then(|ext| ext.to_str())
         .ok_or_else(|| anyhow::anyhow!("Unable to determine file type"))?;
 
@@ -28,6 +29,6 @@ pub fn create_cracker(path: &Path) -> Result<Box<dyn DocumentCracker>> {
         "pdf" => Ok(Box::new(pdf::PdfCracker::new(path)?)),
         "docx" | "xlsx" | "pptx" => Ok(Box::new(office::OfficeCracker::new(path)?)),
         "zip" => Ok(Box::new(archive::ZipCracker::new(path)?)),
-        _ => Err(anyhow::anyhow!("Unsupported file type: {}", extension))
+        _ => Err(anyhow::anyhow!("Unsupported file type: {}", extension)),
     }
 }

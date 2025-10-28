@@ -1,8 +1,10 @@
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use password_cracking::utils::{
+    charsets, format_duration, format_number, validate_file, validate_wordlist,
+};
 use password_cracking::{CrackerEngine, GeneratorMode};
-use password_cracking::utils::{validate_file, validate_wordlist, format_duration, format_number, charsets};
 use std::path::PathBuf;
-use anyhow::{Result, Context};
 
 #[derive(Parser)]
 #[command(
@@ -71,8 +73,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // 验证目标文件
-    validate_file(&cli.file)
-        .with_context(|| format!("Invalid target file: {:?}", cli.file))?;
+    validate_file(&cli.file).with_context(|| format!("Invalid target file: {:?}", cli.file))?;
 
     // 创建生成器模式
     let generator_mode = match cli.mode {
@@ -82,7 +83,11 @@ fn main() -> Result<()> {
                 path: wordlist.to_string_lossy().to_string(),
             }
         }
-        AttackMode::BruteForce { charset, min_length, max_length } => {
+        AttackMode::BruteForce {
+            charset,
+            min_length,
+            max_length,
+        } => {
             let charset_str = match charset.as_str() {
                 "digits" => charsets::DIGITS.to_string(),
                 "lower" => charsets::LOWERCASE.to_string(),
@@ -99,7 +104,11 @@ fn main() -> Result<()> {
                 max_length,
             }
         }
-        AttackMode::Hybrid { wordlist, numbers, special } => {
+        AttackMode::Hybrid {
+            wordlist,
+            numbers,
+            special,
+        } => {
             validate_wordlist(&wordlist)?;
             GeneratorMode::Hybrid {
                 dictionary_path: wordlist.to_string_lossy().to_string(),
@@ -115,7 +124,8 @@ fn main() -> Result<()> {
     println!("Target: {:?}", cli.file);
 
     // 创建破解引擎
-    let engine = CrackerEngine::new(&cli.file, generator_mode, cli.threads, Some(&cli.performance))?;
+    let engine =
+        CrackerEngine::new(&cli.file, generator_mode, cli.threads, Some(&cli.performance))?;
 
     // 开始破解
     println!("Starting password cracking...");

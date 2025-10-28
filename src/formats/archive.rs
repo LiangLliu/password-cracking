@@ -1,8 +1,8 @@
 use super::DocumentCracker;
-use anyhow::{Result, Context};
-use std::path::Path;
+use anyhow::{Context, Result};
 use std::fs::File;
 use std::io::Read;
+use std::path::Path;
 use zip::ZipArchive;
 
 pub struct ZipCracker {
@@ -14,8 +14,8 @@ impl ZipCracker {
         let file_path = path.as_ref().to_string_lossy().to_string();
 
         // Try to open and check if the file is a valid ZIP
-        let _file = File::open(&path)
-            .with_context(|| format!("Failed to open ZIP file: {}", file_path))?;
+        let _file =
+            File::open(&path).with_context(|| format!("Failed to open ZIP file: {}", file_path))?;
 
         Ok(Self { file_path })
     }
@@ -24,12 +24,11 @@ impl ZipCracker {
         self.verify_password_standard(password)
     }
 
-
     fn verify_password_standard(&self, password: &str) -> Result<bool> {
         let file = File::open(&self.file_path)?;
         let mut archive = ZipArchive::new(file)?;
 
-        if archive.len() == 0 {
+        if archive.is_empty() {
             return Ok(false);
         }
 
@@ -87,7 +86,6 @@ impl DocumentCracker for ZipCracker {
         "ZIP"
     }
 }
-
 
 // Keep the RAR implementation as before
 pub struct RarCracker {

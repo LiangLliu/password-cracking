@@ -1,12 +1,15 @@
-use crate::generator::{PasswordGenerator, GeneratorMode, create_generator};
-use crate::formats::{DocumentCracker, create_cracker};
-use anyhow::{Result, Context};
-use std::path::Path;
-use std::sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, Ordering}};
-use std::time::{Duration, Instant};
-use crossbeam_channel::{bounded, Sender, Receiver};
-use indicatif::{ProgressBar, ProgressStyle};
+use crate::formats::{create_cracker, DocumentCracker};
+use crate::generator::{create_generator, GeneratorMode, PasswordGenerator};
 use crate::utils::format_number;
+use anyhow::{Context, Result};
+use crossbeam_channel::{bounded, Receiver, Sender};
+use indicatif::{ProgressBar, ProgressStyle};
+use std::path::Path;
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc, Mutex,
+};
+use std::time::{Duration, Instant};
 
 // 动态批次大小：线程数越多，批次越大，减少同步开销
 const BASE_BATCH_SIZE: usize = 500;
@@ -34,11 +37,11 @@ impl CrackerEngine {
         thread_count: Option<usize>,
         performance_mode: Option<&str>,
     ) -> Result<Self> {
-        let document = create_cracker(file_path.as_ref())
-            .context("Failed to create document cracker")?;
+        let document =
+            create_cracker(file_path.as_ref()).context("Failed to create document cracker")?;
 
-        let generator = create_generator(generator_mode)
-            .context("Failed to create password generator")?;
+        let generator =
+            create_generator(generator_mode).context("Failed to create password generator")?;
 
         // 获取CPU核心信息
         let cpu_count = num_cpus::get();
@@ -50,8 +53,8 @@ impl CrackerEngine {
                     // 平衡模式：使用物理核心数，给系统留一些余地
                     physical_cores.saturating_sub(1).max(1)
                 }
-                "aggressive" | _ => {
-                    // 激进模式：使用所有逻辑核心，包括超线程
+                _ => {
+                    // 激进模式（默认）：使用所有逻辑核心，包括超线程
                     // 对于密码破解这种CPU密集型任务，这能获得最大性能
                     cpu_count
                 }
@@ -98,8 +101,10 @@ impl CrackerEngine {
                 let pb = ProgressBar::new_spinner();
                 pb.set_style(
                     ProgressStyle::default_spinner()
-                        .template("{spinner:.green} [{elapsed_precise}] 已尝试: {pos} | 速度: {per_sec}")
-                        .unwrap()
+                        .template(
+                            "{spinner:.green} [{elapsed_precise}] 已尝试: {pos} | 速度: {per_sec}",
+                        )
+                        .unwrap(),
                 );
                 pb
             }
@@ -139,10 +144,12 @@ impl CrackerEngine {
                     }
                 }
 
-                if batch.len() == batch_size {
-                    if tx_clone.send(std::mem::replace(&mut batch, Vec::with_capacity(batch_size))).is_err() {
-                        return;
-                    }
+                if batch.len() == batch_size
+                    && tx_clone
+                        .send(std::mem::replace(&mut batch, Vec::with_capacity(batch_size)))
+                        .is_err()
+                {
+                    return;
                 }
             }
         });
