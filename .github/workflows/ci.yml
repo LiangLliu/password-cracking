@@ -3,17 +3,26 @@ name: CI
 on:
   push:
     branches: [ main, master, develop ]
+    tags:
+      - 'v*.*.*'
   pull_request:
     branches: [ main, master, develop ]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name for release (only for manual release)'
+        required: false
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
 jobs:
-  # 代码格式检查
-  fmt:
-    name: Format Check
+  # ========== 第一阶段：检查（所有推送都运行）==========
+
+  # 代码质量检查
+  quality-check:
+    name: Quality Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -21,22 +30,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-  # 代码规范检查
-  clippy:
-    name: Clippy Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+          components: rustfmt, clippy
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -47,27 +41,45 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-quality-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-clippy-
+            ${{ runner.os }}-cargo-quality-
             ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
       - name: Run clippy
         run: cargo clippy -- -D warnings
 
-  # 测试矩阵
+  # 安全审计
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run security audit
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # 测试
   test:
-    name: Test Suite
+    name: Test - ${{ matrix.os }} / ${{ matrix.rust }}
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        rust: [stable, beta]
+        rust: [stable]
+        include:
+          - os: ubuntu-latest
+            rust: beta
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
 
@@ -94,31 +106,63 @@ jobs:
       - name: Run doc tests
         run: cargo test --doc --verbose
 
-  # 安全审计
-  security-audit:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
+  # ========== 第二阶段：构建（仅在标签推送时运行）==========
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+  build:
+    name: Build - ${{ matrix.name }}
+    needs: [quality-check, security-audit, test]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: linux-amd64
 
-      - name: Run security audit
-        run: cargo audit
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            name: linux-arm64
+            use-cross: true
 
-  # 代码覆盖率（可选）
-  coverage:
-    name: Code Coverage
-    runs-on: ubuntu-latest
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            name: linux-amd64-musl
+            use-cross: true
+
+          # macOS
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            name: macos-amd64
+
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            name: macos-arm64
+
+          # Windows
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: windows-amd64
+
+          - os: windows-latest
+            target: i686-pc-windows-msvc
+            name: windows-i686
+
     steps:
       - uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
-      - name: Install tarpaulin
-        run: cargo install cargo-tarpaulin --locked
+      - name: Install Cross
+        if: matrix.use-cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -129,16 +173,136 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-build-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-coverage-
+            ${{ runner.os }}-cargo-build-${{ matrix.target }}-
             ${{ runner.os }}-cargo-
 
-      - name: Generate coverage
-        run: cargo tarpaulin --out xml --all-features --workspace
+      - name: Build (cargo)
+        if: ${{ !matrix.use-cross }}
+        run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Upload coverage to codecov
-        uses: codecov/codecov-action@v5
+      - name: Build (cross)
+        if: ${{ matrix.use-cross }}
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Package Binary
+        shell: bash
+        run: |
+          BINARY_NAME="password-cracking"
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            BINARY_NAME="${BINARY_NAME}.exe"
+          fi
+
+          # 创建发布目录
+          mkdir -p release
+
+          # 复制二进制文件
+          cp "target/${{ matrix.target }}/release/${BINARY_NAME}" "release/password-cracking-${{ matrix.name }}${BINARY_NAME##*.exe}"
+
+          # 设置执行权限（Unix系统）
+          if [[ "${{ matrix.os }}" != "windows-latest" ]]; then
+            chmod +x "release/password-cracking-${{ matrix.name }}"
+          fi
+
+      - name: Create Archive
+        shell: bash
+        run: |
+          cd release
+          ARCHIVE_NAME="password-cracking-${{ matrix.name }}"
+
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            # Windows - 创建 ZIP
+            7z a "${ARCHIVE_NAME}.zip" "password-cracking-${{ matrix.name }}.exe" ../README.md
+            sha256sum "${ARCHIVE_NAME}.zip" > "${ARCHIVE_NAME}.zip.sha256"
+          else
+            # Unix - 创建 tar.gz
+            tar -czf "${ARCHIVE_NAME}.tar.gz" "password-cracking-${{ matrix.name }}" ../README.md
+            if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+              shasum -a 256 "${ARCHIVE_NAME}.tar.gz" > "${ARCHIVE_NAME}.tar.gz.sha256"
+            else
+              sha256sum "${ARCHIVE_NAME}.tar.gz" > "${ARCHIVE_NAME}.tar.gz.sha256"
+            fi
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v5
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
+          name: password-cracking-${{ matrix.name }}
+          path: |
+            release/*.tar.gz
+            release/*.zip
+            release/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  # ========== 第三阶段：发布（仅在标签推送时运行）==========
+
+  release:
+    name: Create Release
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: artifacts
+
+      - name: Generate Release Notes
+        run: |
+          TAG="${{ github.ref_name }}"
+          echo "## 🎉 Password Cracking Tool Release $TAG" > RELEASE_NOTES.md
+          echo "" >> RELEASE_NOTES.md
+
+          # 获取上一个标签
+          PREV_TAG=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || echo "")
+
+          if [ -n "$PREV_TAG" ]; then
+            echo "### 📋 更新日志" >> RELEASE_NOTES.md
+            echo "" >> RELEASE_NOTES.md
+            git log --pretty=format:"- %s (%h)" "$PREV_TAG".."$TAG" >> RELEASE_NOTES.md
+          else
+            echo "首次发布！" >> RELEASE_NOTES.md
+          fi
+
+          cat >> RELEASE_NOTES.md << 'EOF'
+          
+          ### 📥 下载说明
+          
+          请根据您的操作系统和架构选择合适的版本：
+          
+          **Linux:**
+          - `password-cracking-linux-amd64.tar.gz`: 适用于 x86_64 Linux
+          - `password-cracking-linux-arm64.tar.gz`: 适用于 ARM64 Linux
+          - `password-cracking-linux-amd64-musl.tar.gz`: 适用于 Alpine Linux
+          
+          **macOS:**
+          - `password-cracking-macos-amd64.tar.gz`: 适用于 Intel Mac
+          - `password-cracking-macos-arm64.tar.gz`: 适用于 Apple Silicon Mac
+          
+          **Windows:**
+          - `password-cracking-windows-amd64.zip`: 适用于 64 位 Windows
+          - `password-cracking-windows-i686.zip`: 适用于 32 位 Windows
+          
+          ### 🔐 校验和
+          
+          每个文件都附带 `.sha256` 校验和文件，请验证文件完整性后使用。
+          EOF
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
+            artifacts/**/*.sha256
+          fail_on_unmatched_files: true
