@@ -2,94 +2,87 @@
 
 [English](./README.md) | [中文文档](./README_CN.md)
 
-一个用 Rust 编写的高性能文档密码破解工具，支持多种文件格式和攻击模式。
+用 Rust 编写的高性能文档密码破解工具，支持 ZIP、PDF、Office 文档的字典、暴力和混合攻击。
 
-⚠️ **警告**：此工具仅供合法用途，如恢复您自己的密码保护文件或授权的安全测试。请勿用于非法目的。
+> **警告**：此工具仅供合法用途——恢复您自己的密码保护文件或授权的安全测试。请勿用于非法目的。
 
-## ✨ 特性
+## 特性
 
-- 🚀 **高性能**：多线程并行处理
-- 📄 **多格式支持**：ZIP、PDF、Office 文档
-- 🔧 **攻击模式**：字典、暴力破解、混合
-- 📊 **实时进度**：速度、百分比和预计时间
-- 🌍 **跨平台**：Windows、macOS 和 Linux
+- **多格式**：ZIP (ZipCrypto + AES)、PDF (RC4-40/128, AES-128/256)、Office (Agile AES-256)
+- **多线程**：Rayon 工作窃取并行，利用所有 CPU 核心
+- **三种攻击模式**：字典、暴力、混合（字典 + 规则变异）
+- **自动检测**：通过文件魔数识别格式，不依赖扩展名
+- **两阶段验证**：快速头部检查先排除 ~99% 错误密码，再做完整解密确认
+- **跨平台**：Linux、macOS、Windows
 
-## 🚀 快速开始
-
-### 安装
+## 快速开始
 
 ```bash
-# 克隆并构建
+# 编译
 git clone https://github.com/LiangLliu/password-cracking
 cd password-cracking
 cargo build --release
 
-# 安装开发钩子（可选）
-./scripts/install-hooks.sh
-```
-
-### 基本用法
-
-```bash
 # 字典攻击
-password-cracking -f document.zip dictionary -w passwords.txt
+./target/release/password-cracking -f document.zip dictionary -w passwords.txt
 
-# 暴力破解（4-6位数字密码）
-password-cracking -f document.pdf brute-force -c digits --min-length 4 --max-length 6
+# 暴力破解（4-6 位数字 PIN）
+./target/release/password-cracking -f document.pdf brute-force -c digits --min-length 4 --max-length 6
 
-# 混合攻击
-password-cracking -f document.docx hybrid -w dictionary.txt -m append-digits
+# 混合攻击（字典 + 规则变异）
+./target/release/password-cracking -f document.docx hybrid -w dict.txt --capitalize --l33t --append-digits 99
+
+# 静默模式（脚本中使用，只输出密码）
+./target/release/password-cracking -q -f document.zip dictionary -w passwords.txt
 ```
 
-## 📚 文档
+## 性能
 
-- **[用户指南](docs/USER_GUIDE_CN.md)** - 详细使用说明（中文）
-- **[开发指南](docs/DEVELOPMENT.md)** - 设置和编码规范
-- **[项目结构](docs/PROJECT_STRUCTURE.md)** - 架构概述
-- **[CI/CD 指南](docs/CI-CD.md)** - 自动化工作流
-- **[所有文档](docs/)** - 完整文档
+| 格式 | 加密类型 | 速度（密码/秒） |
+|------|---------|---------------|
+| ZIP | ZipCrypto | 7,000,000+ |
+| PDF | RC4-128 | 500,000+ |
+| Office | Agile AES-256 | 400+ |
 
-## 🛠 开发
+性能取决于 CPU 核心数、加密类型和密码复杂度。
+
+## 文档
+
+- **[用户指南](docs/USER_GUIDE.md)** — 完整使用说明和示例
+- **[项目结构](docs/PROJECT_STRUCTURE.md)** — 架构概述
+- **[性能指南](docs/PERFORMANCE.md)** — 性能基准和优化建议
+- **[ZIP 实现](docs/ZIP_IMPLEMENTATION.md)** — ZipCrypto 加密实现细节
+- **[开发规范](docs/DEVELOPMENT.md)** — 编码规范和工作流
+
+## 示例文件
+
+`examples/` 目录包含密码为 `92eo` 的测试文件（ZIP、PDF、DOCX、XLSX、PPTX）：
 
 ```bash
-# 运行代码检查
+# 生成测试文件（需要 Python + UV）
+cd examples && uv run python create_test_files.py && cd ..
+
+# 测试所有格式
+./target/release/password-cracking -f examples/test.zip dictionary -w wordlists/common-passwords.txt
+```
+
+## 开发
+
+```bash
+# 代码检查
 ./scripts/fmt.sh
 
 # 运行测试
 cargo test
 
-# 创建发布
+# 发布
 ./scripts/release.sh patch
 ```
 
-查看 [scripts/](scripts/) 了解所有可用的开发工具。
+## 许可证
 
-## 📦 示例文件
+MIT — 详见 [LICENSE](LICENSE)
 
-包含密码为 `92eo` 的测试文件：
-
-```bash
-cd examples
-python create_test_files.py  # 生成测试文件
-cd ..
-./target/release/password-cracking -f examples/test.zip dictionary -w wordlists/common-passwords.txt
-```
-
-## ⚡ 性能
-
-在 8 核 CPU 上的典型速度：
-- 字典攻击：100K-500K 密码/秒
-- 暴力破解（数字）：10M+ 密码/秒
-- 混合攻击：10K-100K 密码/秒
-
-## 🤝 贡献
-
-欢迎贡献！请先阅读我们的[开发指南](docs/DEVELOPMENT.md)。
-
-## 📄 许可证
-
-MIT 许可证 - 详见 [LICENSE](LICENSE) 文件。
-
-## ⚖️ 法律声明
+## 法律声明
 
 此工具仅供合法用途使用。用户有责任遵守所有适用法律。作者不对任何滥用行为负责。

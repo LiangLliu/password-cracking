@@ -4,142 +4,136 @@
 
 ```
 password-cracking/
-├── Cargo.toml                 # Rust dependencies and project metadata
-├── LICENSE                    # MIT License
-├── README.md                  # English documentation
-├── README_CN.md               # Chinese documentation (中文文档)
-├── .gitignore                # Git ignore rules
+├── Cargo.toml                     # Rust dependencies (edition 2024)
+├── Cargo.lock                     # Locked dependency versions
+├── LICENSE                        # MIT License
+├── README.md                      # English documentation
+├── README_CN.md                   # Chinese documentation
+├── rustfmt.toml                   # Rust formatting config
 │
-├── src/                      # Source code
-│   ├── main.rs              # CLI entry point
-│   ├── lib.rs               # Library exports
+├── src/                           # Source code
+│   ├── main.rs                    # Binary entry point
+│   ├── lib.rs                     # Library exports
 │   │
-│   ├── cracker/             # Core cracking engine
-│   │   └── mod.rs          # Multi-threaded password cracker
+│   ├── cli/                       # Command-line interface
+│   │   └── mod.rs                 # clap v4 argument parsing, run()
 │   │
-│   ├── formats/             # File format handlers
-│   │   ├── mod.rs          # Format trait and factory
-│   │   ├── archive.rs      # ZIP file support
-│   │   ├── pdf.rs          # PDF file support
-│   │   ├── office.rs       # Office file support
-│   │   └── zip_crypto.rs   # ZIP encryption algorithms
+│   ├── engine/                    # Cracking engine
+│   │   └── mod.rs                 # CrackerEngine: Rayon pool + crossbeam channels
 │   │
-│   ├── generator/           # Password generators
-│   │   ├── mod.rs          # Generator trait
-│   │   ├── brute_force.rs  # Brute force generator
-│   │   └── dictionary.rs   # Dictionary-based generator
+│   ├── formats/                   # File format handlers
+│   │   ├── mod.rs                 # PasswordVerifier trait + auto-detection
+│   │   ├── zip.rs                 # ZIP: ZipCrypto + AES
+│   │   ├── pdf.rs                 # PDF: RC4-40/128, AES-128/256
+│   │   └── office.rs              # Office: Agile AES-256
 │   │
-│   └── utils/              # Utilities
-│       └── mod.rs          # Helper functions
+│   ├── generators/                # Password generators
+│   │   ├── mod.rs                 # PasswordSource trait + factory
+│   │   ├── dictionary.rs          # Dictionary source (streaming, dedup)
+│   │   ├── brute_force.rs         # Brute-force source (index-based)
+│   │   └── rules.rs               # Rule-based hybrid source
+│   │
+│   └── utils/                     # Utilities
+│       └── mod.rs                 # Character sets, formatting, validation
 │
-├── examples/               # Test files and scripts
-│   ├── create_test_files.py # Python script to create test files
-│   ├── pyproject.toml      # UV project configuration
-│   ├── README.md           # Examples documentation
-│   ├── test.zip            # Sample encrypted ZIP (password: 92eo)
-│   ├── test.pdf            # Sample encrypted PDF
-│   ├── test.docx           # Sample encrypted Word document
-│   ├── test.xlsx           # Sample encrypted Excel file
-│   └── test.pptx           # Sample encrypted PowerPoint
+├── examples/                      # Test files and scripts
+│   ├── create_test_files.py       # Generate encrypted test files (password: 92eo)
+│   ├── pyproject.toml             # UV Python project config
+│   ├── test.zip                   # Sample encrypted ZIP
+│   ├── test.pdf                   # Sample encrypted PDF
+│   ├── test.docx                  # Sample encrypted Word
+│   ├── test.xlsx                  # Sample encrypted Excel
+│   └── test.pptx                  # Sample encrypted PowerPoint
 │
-├── wordlists/             # Password dictionaries
-│   ├── common-passwords.txt
-│   ├── chinese-common.txt
-│   ├── pins-4digit.txt
-│   └── pins-6digit.txt
+├── wordlists/                     # Password dictionaries
+│   ├── common-passwords.txt       # 33 common passwords
+│   ├── chinese-common.txt         # 40 common Chinese passwords
+│   ├── pins-4digit.txt            # 10,000 4-digit PINs
+│   └── pins-6digit.txt            # 1,000,000 6-digit PINs
 │
-└── docs/                  # Documentation
-    ├── PROJECT_STRUCTURE.md    # This file
-    ├── PERFORMANCE.md          # Performance benchmarks
-    └── ZIP_IMPLEMENTATION.md   # ZIP encryption implementation details
+├── docs/                          # Documentation
+│   ├── USER_GUIDE.md              # Complete usage guide
+│   ├── PROJECT_STRUCTURE.md       # This file
+│   ├── PERFORMANCE.md             # Performance benchmarks
+│   ├── ZIP_IMPLEMENTATION.md      # ZIP encryption implementation
+│   ├── DEVELOPMENT.md             # Development guide
+│   └── CI-CD.md                   # CI/CD workflows
+│
+├── scripts/                       # Development scripts
+│   ├── fmt.sh                     # Format and lint
+│   ├── release.sh                 # Version release
+│   └── install-hooks.sh           # Install git hooks
+│
+└── .github/                       # GitHub workflows
+    └── workflows/
+        └── ci.yml                 # CI: test, clippy, build, release
 ```
 
-## Key Components
+## Core Abstractions
 
-### 1. Core Engine (`src/cracker/`)
+### PasswordVerifier Trait (`src/formats/mod.rs`)
 
-- Multi-threaded password testing using Rayon
-- Work-stealing parallelism for optimal CPU usage
-- Real-time progress tracking with indicatif
-- Batch processing for efficiency
+```rust
+pub trait PasswordVerifier: Send + Sync {
+    fn quick_check(&self, password: &[u8]) -> bool;  // Fast pre-filter
+    fn verify(&self, password: &[u8]) -> bool;        // Full verification
+    fn format_name(&self) -> &'static str;
+    fn encryption_info(&self) -> &str;
+}
+```
 
-### 2. File Format Support (`src/formats/`)
+Two-phase design: `quick_check` rejects ~99% of wrong passwords cheaply (e.g., ZIP's 12-byte header), `verify` does the expensive full decryption + CRC check.
 
-#### ZIP (`archive.rs`)
-- Traditional ZipCrypto encryption
-- AES encryption support
-- Proper CRC32 validation
-- Cross-platform compatibility
+### PasswordSource Trait (`src/generators/mod.rs`)
 
-#### PDF (`pdf.rs`)
-- 40-bit RC4 (PDF 1.3)
-- 128-bit RC4 (PDF 1.4)
-- AES-128 (PDF 1.6)
-- AES-256 (PDF 2.0)
+```rust
+pub trait PasswordSource: Send {
+    fn fill_batch(&mut self, batch: &mut Vec<Box<[u8]>>) -> bool;
+    fn estimated_total(&self) -> Option<u64>;
+    fn checkpoint(&self) -> Option<String>;
+    fn restore(&mut self, checkpoint: &str) -> Result<()>;
+    fn name(&self) -> &str;
+}
+```
 
-#### Office (`office.rs`)
-- Office 2007+ (ECMA-376)
-- AES encryption
-- PBKDF2 key derivation
+Streaming design: passwords are generated in batches, never holding the entire search space in memory.
 
-### 3. Password Generators (`src/generator/`)
+### CrackerEngine (`src/engine/mod.rs`)
 
-#### Brute Force
-- Configurable character sets
-- Length range support
-- Efficient iteration
-- Total combination calculation
+Pipeline:
+```
+PasswordSource.fill_batch() → crossbeam channel → Rayon worker pool
+  worker: quick_check() → verify() → AtomicBool found
+```
 
-#### Dictionary
-- File-based wordlists
-- Directory support (recursively loads .txt files)
-- Line-by-line streaming
-- Memory efficient
-- Automatic deduplication
+- Bounded channel (`thread_count * 2`) keeps memory flat
+- Independent progress thread (100ms refresh)
+- Generator runs on its own thread to overlap with verification
 
-### 4. Examples Directory (`examples/`)
+## Format Auto-Detection (`src/formats/mod.rs`)
 
-Contains test files and utilities for tool validation:
-- **UV Python Project**: Modern Python environment management
-- **Test File Generator**: Creates password-protected PDF, Word, Excel, and PowerPoint files
-- **Sample Files**: Pre-created test files with password "92eo"
-- **Documentation**: Setup and usage instructions
+| Magic Bytes | Format | Notes |
+|------------|--------|-------|
+| `PK\x03\x04` | ZIP | Also used for OOXML (.docx/.xlsx/.pptx) |
+| `%PDF-` | PDF | |
+| `\xD0\xCF\x11\xE0...` | Office | OLE2 compound file (old binary formats) |
 
-Uses UV for dependency management - no requirements.txt or manual venv needed.
+OOXML files are ZIP containers, so extension is checked after magic bytes to distinguish from plain ZIP archives.
 
-### 5. Command Line Interface (`src/main.rs`)
+## Dependencies
 
-Built with clap v4:
-- Subcommands: dictionary, brute-force, hybrid
-- Global options: file, threads, performance
-- Help and version information
-- Input validation
+All dependencies are at latest stable versions (as of 2026-06):
 
-## Architecture Decisions
-
-1. **Rust**: Chosen for memory safety and performance
-2. **Rayon**: Work-stealing parallelism scales automatically
-3. **Channels**: Bounded channels prevent memory overflow
-4. **Batch Processing**: Reduces synchronization overhead
-5. **Progress Bars**: Non-blocking updates for smooth UI
-
-## Performance Characteristics
-
-- **ZIP (Traditional)**: 40,000+ passwords/second
-- **ZIP (AES)**: 10,000+ passwords/second
-- **PDF**: 1,000-5,000 passwords/second
-- **Office**: 100-1,000 passwords/second
-
-Performance varies based on:
-- CPU cores and speed
-- Password complexity
-- File encryption type
-- System memory
-
-## Future Enhancements
-
-1. GPU acceleration for suitable algorithms
-2. Network distributed cracking
-3. More file formats (RAR5, 7z)
-4. Advanced rule-based mutations
-5. Machine learning password generation
+| Category | Crates |
+|----------|--------|
+| CLI | clap 4.6 |
+| Concurrency | rayon 1.12, crossbeam-channel 0.5, num_cpus 1.17 |
+| Progress | indicatif 0.18 |
+| Errors | anyhow 1.0, thiserror 2.0 |
+| ZIP | zip 8.6 |
+| Crypto hashes | sha2 0.11, sha1 0.11, md-5 0.11, hmac 0.13, pbkdf2 0.13 |
+| Crypto ciphers | aes 0.9, cbc 0.2, rc4 0.2, cipher 0.5 |
+| CRC | crc32fast 1.5 |
+| OLE2 | cfb 0.14 |
+| Memory-mapped I/O | memmap2 0.9 |
+| Utils | humansize 2.1, base64 0.22 |

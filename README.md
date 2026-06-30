@@ -40,7 +40,7 @@ cargo build --release
 |--------|-----------|----------------------|
 | ZIP | ZipCrypto | 7,000,000+ |
 | PDF | RC4-128 | 470,000+ |
-| Office | Agile AES-256 | 60+ |
+| Office | Agile AES-256 | 400+ |
 
 Performance depends on CPU cores, encryption type, and password complexity.
 
@@ -56,6 +56,16 @@ src/
   generators/          PasswordSource trait + dictionary/brute-force/rules
   utils/               character sets, formatting, validation
 ```
+
+## Documentation
+
+- **[User Guide](docs/USER_GUIDE.md)** — Complete usage instructions and examples
+- **[Performance Guide](docs/PERFORMANCE.md)** — Benchmarks and optimization tips
+- **[Project Structure](docs/PROJECT_STRUCTURE.md)** — Architecture overview
+- **[ZIP Implementation](docs/ZIP_IMPLEMENTATION.md)** — ZipCrypto encryption details
+- **[PDF Implementation](docs/PDF_IMPLEMENTATION.md)** — PDF encryption algorithms
+- **[Office Implementation](docs/OFFICE_IMPLEMENTATION.md)** — Agile Encryption details
+- **[Development Guide](docs/DEVELOPMENT.md)** — Coding standards and workflow
 
 ## License
 

@@ -1,127 +1,103 @@
 # ZIP Implementation Details
 
-## Overview
+## Encryption Methods
 
-This document covers the ZIP format implementation, including encryption methods, cross-platform compatibility, and bug fixes.
+### ZipCrypto (Traditional PKZIP Encryption)
 
-## ZIP Encryption Methods
+- **Algorithm**: Stream cipher based on CRC32 + custom key schedule
+- **Key size**: 96 bits effective (3 × 32-bit keys)
+- **Compatibility**: All ZIP tools support it
+- **Security**: Weak — vulnerable to known-plaintext attacks
+- **Performance**: 7M+ passwords/sec (with 12-byte header quick check)
 
-### 1. Traditional Encryption (ZipCrypto/PKZIP)
-- **Algorithm**: Modified RC4 variant
-- **Key Size**: 96-bit effective
-- **Compatibility**: Universal - all ZIP tools support it
-- **Security**: Weak - vulnerable to known-plaintext attacks
-- **Performance**: Very fast (40,000+ passwords/sec)
+### AES (WinZip AES)
 
-### 2. AES Encryption (WinZip AES)
-- **Algorithm**: AES-128/192/256
-- **Compatibility**: Requires WinZip 9.0+ or compatible tools
+- **Algorithm**: AES-128/192/256 in CTR mode with HMAC-SHA1
+- **Compatibility**: WinZip 9.0+ or compatible tools
 - **Security**: Strong
-- **Performance**: Moderate (10,000+ passwords/sec)
+- **Performance**: Slower (handled by the `zip` crate internally)
 
-## Password Verification Process
+## ZipCrypto Key Schedule
 
-### Traditional Encryption Validation
+The encryption uses three 32-bit key registers initialized to fixed constants:
 
-1. **12-byte Header Check** (Fast)
-   ```
-   - Decrypt 12-byte header
-   - Verify last byte against CRC32 high byte or timestamp
-   - Quick rejection of wrong passwords
-   ```
+```
+key0 = 0x12345678
+key1 = 0x23456789
+key2 = 0x34567890
+```
 
-2. **CRC32 Data Validation** (Accurate)
-   ```
-   - Decrypt file data
-   - Calculate CRC32
-   - Compare with stored CRC32
-   - Ensures password correctness
-   ```
-
-### Implementation Fix
-
-**Problem**: Initial implementation only read 16 bytes, insufficient for CRC validation. This caused wrong passwords to be accepted.
-
-**Solution**: Use `read_to_end()` to ensure complete CRC validation:
+For each password byte, the keys are updated:
 
 ```rust
-// Read enough data to trigger CRC validation
-match file.read_to_end(&mut buffer) {
-    Ok(_) => true,  // CRC validated
-    Err(e) if e.to_string().contains("Invalid checksum") => false,
-    // ...
+fn update(&mut self, byte: u8, table: &[u32; 256]) {
+    self.k0 = crc32_byte(self.k0, byte, table);
+    self.k1 = self.k1.wrapping_add(self.k0 & 0xff)
+              .wrapping_mul(134_775_813).wrapping_add(1);
+    self.k2 = crc32_byte(self.k2, (self.k1 >> 24) as u8, table);
 }
 ```
 
-## Cross-Platform Compatibility
+The stream byte is generated from `k2`:
 
-### Creating Encrypted ZIPs
+```rust
+fn stream_byte(&self) -> u8 {
+    let temp = (self.k2 | 2) & 0xffff;
+    ((temp.wrapping_mul(temp ^ 1)) >> 8) as u8
+}
+```
 
-**macOS/Linux**:
+Decryption: `plaintext = ciphertext ^ stream_byte()`, then update keys with plaintext.
+
+## 12-Byte Header Quick Check
+
+Every ZipCrypto-encrypted file starts with a 12-byte encryption header. The last byte of this decrypted header is a verification byte:
+
+- **Standard mode** (bit 3 of flags = 0): must equal the high byte of CRC32
+- **Data descriptor mode** (bit 3 of flags = 1): must equal the high byte of the last modification time (DOS format)
+
+Our implementation reads the local file header directly to extract:
+- General purpose bit flags (to determine verification mode)
+- CRC32 (for standard mode check byte)
+- Last modification time (for data descriptor mode check byte)
+- The 12-byte encrypted header itself
+
+This allows rejecting ~99.6% of wrong passwords by decrypting only 12 bytes instead of the entire file.
+
+## Implementation (`src/formats/zip.rs`)
+
+### Initialization
+
+1. Open the ZIP archive and scan for the first encrypted entry
+2. Read the local file header to extract flags, CRC32, and modification time
+3. Read the 12-byte encryption header from the data area
+
+### Quick Check (`quick_check`)
+
+1. Initialize keys from the password
+2. Decrypt the 12-byte header
+3. Compare the last byte against the expected check byte
+
+### Full Verification (`verify`)
+
+1. Open the ZIP archive with the `zip` crate
+2. Call `by_index_decrypt(index, password)` to get a decrypted reader
+3. Read the entire file content (triggers CRC32 validation)
+4. If read succeeds without error, the password is correct
+
+## Cross-Platform ZIP Creation
+
 ```bash
-# Traditional encryption
+# Traditional encryption (macOS/Linux)
 zip -e archive.zip files...
 zip -P password archive.zip files...
 
-# No native AES support
-```
-
-**Windows**:
-```bash
-# Using 7-Zip for AES
-7z a -p"password" -mem=AES256 archive.zip files...
-```
-
-### Reading Encrypted ZIPs
-
-Our implementation correctly handles:
-- ZIP files created on any platform
-- Both traditional and AES encryption
-- Proper byte order and CRC calculation
-- Unicode filenames
-
-## Technical Implementation
-
-### Key Components
-
-1. **Encryption Detection**
-   ```rust
-   // Check general purpose bit flag
-   if flags & 0x0001 != 0 {
-       // File is encrypted
-   }
-   ```
-
-2. **CRC32 Calculation**
-   - Uses standard ZIP polynomial
-   - Validates decrypted data integrity
-
-3. **Performance Optimization**
-   - Header-only validation for quick rejection
-   - Streaming decryption for large files
-   - Batch processing for parallel testing
-
-## Testing
-
-Test files can be created with different encryption:
-
-```bash
-# Traditional (cross-platform)
-echo "test data" > test.txt
-zip -P testpass traditional.zip test.txt
-
-# AES-256 (using 7z)
-7z a -tzip -p"testpass" -mem=AES256 aes.zip test.txt
+# AES-256 (using 7z, any platform)
+7z a -tzip -p"password" -mem=AES256 archive.zip files...
 ```
 
 ## Known Limitations
 
-1. **ZIP64**: Large file support not fully tested
-2. **Split Archives**: Multi-volume ZIPs not supported
-3. **Compression**: Only Deflate method fully tested
-
-## Security Considerations
-
-1. Traditional ZIP encryption is **not secure** for sensitive data
-2. Use AES encryption for actual security needs
-3. Password complexity is critical - even AES can be brute-forced with weak passwords
+1. Only the first encrypted entry is checked (multi-entry ZIPs with different passwords per entry are not supported)
+2. ZIP64 (large file) support depends on the `zip` crate
+3. Split/multi-volume archives are not supported
