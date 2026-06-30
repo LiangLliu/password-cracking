@@ -313,7 +313,7 @@ fn parse_dict_value(dict: &str, key: &[u8]) -> Option<String> {
     // A name like "/Standard" is one token.
     // Read until we hit ">>" (end of dict) or "/" (next key).
     let end = after
-        .find(|c: char| c == '>' || c == '/')
+        .find(['>', '/'])
         .unwrap_or(after.len());
     Some(after[..end].trim().to_string())
 }
