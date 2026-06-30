@@ -8,8 +8,10 @@ use std::path::PathBuf;
 #[command(
     name = "password-cracking",
     version,
-    author,
-    about = "High-performance document password cracker"
+    about = "High-performance document password cracker",
+    long_about = "Cracks password-protected ZIP, PDF, and Office documents.\n\
+                  Supports dictionary, brute-force, and hybrid (rule-based) attacks.\n\
+                  Automatically detects file format and encryption type."
 )]
 pub struct Cli {
     /// Target file to crack
@@ -19,6 +21,10 @@ pub struct Cli {
     /// Number of threads (default: all logical cores)
     #[arg(short, long)]
     pub threads: Option<usize>,
+
+    /// Quiet mode: only show the result
+    #[arg(short, long)]
+    pub quiet: bool,
 
     /// Attack mode
     #[command(subcommand)]
@@ -35,7 +41,7 @@ pub enum AttackMode {
     },
     /// Brute-force attack over a character set
     BruteForce {
-        /// Character set: digits, lower, upper, special, alnum, all, or custom
+        /// Character set: digits, lower, upper, special, alnum, all, or custom string
         #[arg(short, long, default_value = "alnum")]
         charset: String,
         /// Minimum password length
@@ -45,24 +51,30 @@ pub enum AttackMode {
         #[arg(long, default_value = "6")]
         max_length: usize,
     },
-    /// Hybrid attack: dictionary + mutation rules
+    /// Hybrid attack: dictionary words + mutation rules
     Hybrid {
         /// Path to wordlist
         #[arg(short, long)]
         wordlist: PathBuf,
-        /// Apply capitalize rule
+        /// Capitalize first letter
         #[arg(long)]
         capitalize: bool,
-        /// Apply uppercase rule
+        /// Convert to uppercase
         #[arg(long)]
         upper: bool,
-        /// Apply lowercase rule
+        /// Convert to lowercase
         #[arg(long)]
         lower: bool,
-        /// Apply l33t-speak rule
+        /// Apply l33t-speak substitutions (a→@, e→3, i→1, o→0, s→$)
         #[arg(long)]
         l33t: bool,
-        /// Append up to N digits
+        /// Reverse the word
+        #[arg(long)]
+        reverse: bool,
+        /// Duplicate the word (e.g. pass→passpass)
+        #[arg(long)]
+        duplicate: bool,
+        /// Append 0..=N to each word
         #[arg(long)]
         append_digits: Option<u32>,
     },
@@ -95,6 +107,8 @@ impl Cli {
                 upper,
                 lower,
                 l33t,
+                reverse,
+                duplicate,
                 append_digits,
             } => {
                 utils::validate_wordlist(wordlist)?;
@@ -110,6 +124,12 @@ impl Cli {
                 }
                 if *l33t {
                     rules.push(Rule::L33t);
+                }
+                if *reverse {
+                    rules.push(Rule::Reverse);
+                }
+                if *duplicate {
+                    rules.push(Rule::Duplicate);
                 }
                 if let Some(n) = append_digits {
                     rules.push(Rule::AppendDigits(*n));
@@ -147,22 +167,38 @@ pub fn run() -> Result<()> {
     let mode = cli.build_generator_mode()?;
     let source = crate::generators::create_source(mode)?;
 
-    println!("Password Cracker");
-    println!("================");
-    println!("Target: {}", cli.file.display());
+    if !cli.quiet {
+        println!("Password Cracker");
+        println!("================");
+        println!("Target: {}", cli.file.display());
+    }
 
     let engine = crate::engine::CrackerEngine::new(&cli.file, source, cli.threads)?;
-    let result = engine.crack()?;
+    let result = engine.crack(cli.quiet)?;
 
-    println!("\nResult");
-    println!("======");
-    println!("Duration: {}", utils::format_duration(result.duration));
-    println!("Attempts: {}", utils::format_number(result.attempts));
-    println!("Speed:    {:.0} passwords/sec", result.speed);
+    if !cli.quiet {
+        println!("\nResult");
+        println!("======");
+        println!("Duration: {}", utils::format_duration(result.duration));
+        println!("Attempts: {}", utils::format_number(result.attempts));
+        println!("Speed:    {:.0} passwords/sec", result.speed);
+    }
 
     match result.password {
-        Some(pw) => println!("\nPassword found: {pw}"),
-        None => println!("\nPassword not found"),
+        Some(pw) => {
+            if cli.quiet {
+                println!("{pw}");
+            } else {
+                println!("\nPassword found: {pw}");
+            }
+        }
+        None => {
+            if !cli.quiet {
+                println!("\nPassword not found");
+            } else {
+                eprintln!("not found");
+            }
+        }
     }
 
     Ok(())

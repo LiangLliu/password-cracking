@@ -45,19 +45,27 @@ impl CrackerEngine {
         })
     }
 
-    pub fn crack(mut self) -> Result<CrackResult> {
+    pub fn crack(mut self, quiet: bool) -> Result<CrackResult> {
         let start = Instant::now();
         let total = self.source.estimated_total();
         let format = self.verifier.format_name();
         let encryption = self.verifier.encryption_info();
+        let source_name = self.source.name();
 
-        println!("\nFormat: {format} ({encryption})");
-        println!("Threads: {}", self.thread_count);
-        if let Some(t) = total {
-            println!("Candidates: {}", crate::utils::format_number(t));
+        if !quiet {
+            println!("\nFormat:  {format} ({encryption})");
+            println!("Attack:  {source_name}");
+            println!("Threads: {}", self.thread_count);
+            if let Some(t) = total {
+                println!("Keyspace: {}", crate::utils::format_number(t));
+            }
         }
 
-        let pb = build_progress_bar(total);
+        let pb = if quiet {
+            ProgressBar::hidden()
+        } else {
+            build_progress_bar(total)
+        };
         pb.enable_steady_tick(Duration::from_millis(100));
 
         let found = Arc::new(AtomicBool::new(false));
