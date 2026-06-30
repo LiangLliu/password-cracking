@@ -1,7 +1,9 @@
-pub mod cracker;
+pub mod cli;
+pub mod engine;
 pub mod formats;
-pub mod generator;
+pub mod generators;
 pub mod utils;
 
-pub use cracker::CrackerEngine;
-pub use generator::{GeneratorMode, PasswordGenerator};
+pub use engine::{CrackResult, CrackerEngine};
+pub use formats::PasswordVerifier;
+pub use generators::{GeneratorMode, PasswordSource};
