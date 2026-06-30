@@ -16,11 +16,13 @@ impl ZipVerifier {
         let file = File::open(path).context("Failed to open ZIP")?;
         let mut archive = ZipArchive::new(file).context("Invalid ZIP file")?;
 
+        // Access metadata via the central directory without reading file data.
         let mut first_encrypted = None;
         let mut aes = false;
 
         for i in 0..archive.len() {
-            let entry = archive.by_index(i)?;
+            // by_index_raw reads the local file header without attempting decryption.
+            let entry = archive.by_index_raw(i)?;
             if entry.encrypted() {
                 first_encrypted = Some(i);
                 if entry.compression() == zip::CompressionMethod::Aes {
@@ -42,8 +44,8 @@ impl ZipVerifier {
 
 impl PasswordVerifier for ZipVerifier {
     fn quick_check(&self, password: &[u8]) -> bool {
-        // For now, use full verification as quick check.
-        // Phase 3 will add the 12-byte header fast-path for ZipCrypto.
+        // Phase 3: add ZipCrypto 12-byte header fast-path.
+        // For now, fall through to full verification.
         self.verify(password)
     }
 
