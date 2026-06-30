@@ -2,94 +2,61 @@
 
 [中文文档](./README_CN.md) | [English](./README.md)
 
-A high-performance document password cracking tool written in Rust, supporting multiple file formats and attack modes.
+A high-performance document password cracking tool written in Rust, supporting ZIP, PDF, and Office documents with dictionary, brute-force, and hybrid (rule-based) attacks.
 
-⚠️ **Warning**: This tool is for legitimate purposes only, such as recovering your own password-protected files or authorized security testing. Do not use for illegal purposes.
+> **Warning**: This tool is for legitimate purposes only — recovering your own password-protected files or authorized security testing. Do not use for illegal purposes.
 
-## ✨ Features
+## Features
 
-- 🚀 **High Performance**: Multi-threaded parallel processing
-- 📄 **Multi-format Support**: ZIP, PDF, Office documents
-- 🔧 **Attack Modes**: Dictionary, Brute-force, Hybrid
-- 📊 **Real-time Progress**: Speed, percentage, and ETA
-- 🌍 **Cross-platform**: Windows, macOS, and Linux
+- **Multi-format**: ZIP (ZipCrypto + AES), PDF (RC4-40/128, AES-128/256), Office (Agile AES-256)
+- **Multi-threaded**: Rayon work-stealing parallelism across all CPU cores
+- **Three attack modes**: Dictionary, brute-force, hybrid (dictionary + rules)
+- **Auto-detection**: Identifies file format by magic bytes, not just extension
+- **Two-phase verification**: Fast header check rejects ~99% of wrong passwords before full decryption
+- **Cross-platform**: Linux, macOS, Windows
 
-## 🚀 Quick Start
-
-### Installation
+## Quick Start
 
 ```bash
-# Clone and build
-git clone https://github.com/LiangLliu/password-cracking
-cd password-cracking
+# Build
 cargo build --release
 
-# Install development hooks (optional)
-./scripts/install-hooks.sh
-```
-
-### Basic Usage
-
-```bash
 # Dictionary attack
-password-cracking -f document.zip dictionary -w passwords.txt
+./target/release/password-cracking -f document.zip dictionary -w passwords.txt
 
-# Brute force (4-6 digit PIN)
-password-cracking -f document.pdf brute-force -c digits --min-length 4 --max-length 6
+# Brute-force (4-6 digit PIN)
+./target/release/password-cracking -f document.pdf brute-force -c digits --min-length 4 --max-length 6
 
-# Hybrid attack
-password-cracking -f document.docx hybrid -w dictionary.txt -m append-digits
+# Hybrid (dictionary + rules)
+./target/release/password-cracking -f document.docx hybrid -w dict.txt --capitalize --l33t --append-digits 99
+
+# Quiet mode (for scripting: prints only the password)
+./target/release/password-cracking -q -f document.zip dictionary -w passwords.txt
 ```
 
-## 📚 Documentation
+## Performance
 
-- **[User Guide](docs/USER_GUIDE.md)** - Detailed usage instructions
-- **[Development Guide](docs/DEVELOPMENT.md)** - Setup and coding standards
-- **[Project Structure](docs/PROJECT_STRUCTURE.md)** - Architecture overview
-- **[CI/CD Guide](docs/CI-CD.md)** - Automated workflows
-- **[All Documents](docs/)** - Complete documentation
+| Format | Encryption | Speed (passwords/sec) |
+|--------|-----------|----------------------|
+| ZIP | ZipCrypto | 7,000,000+ |
+| PDF | RC4-128 | 470,000+ |
+| Office | Agile AES-256 | 60+ |
 
-## 🛠 Development
+Performance depends on CPU cores, encryption type, and password complexity.
 
-```bash
-# Run code checks
-./scripts/fmt.sh
+## Architecture
 
-# Run tests
-cargo test
-
-# Create a release
-./scripts/release.sh patch
+```
+src/
+  main.rs              CLI entry point
+  lib.rs               public exports
+  cli/                 clap v4 argument parsing
+  engine/              Rayon + crossbeam cracking engine
+  formats/             PasswordVerifier trait + ZIP/PDF/Office implementations
+  generators/          PasswordSource trait + dictionary/brute-force/rules
+  utils/               character sets, formatting, validation
 ```
 
-See [scripts/](scripts/) for all available development tools.
+## License
 
-## 📦 Example Files
-
-Test files with password `92eo` are included:
-
-```bash
-cd examples
-python create_test_files.py  # Generate test files
-cd ..
-./target/release/password-cracking -f examples/test.zip dictionary -w wordlists/common-passwords.txt
-```
-
-## ⚡ Performance
-
-Typical speeds on an 8-core CPU:
-- Dictionary attack: 100K-500K passwords/sec
-- Brute force (digits): 10M+ passwords/sec
-- Hybrid attack: 10K-100K passwords/sec
-
-## 🤝 Contributing
-
-Contributions are welcome! Please read our [Development Guide](docs/DEVELOPMENT.md) first.
-
-## 📄 License
-
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## ⚖️ Legal Disclaimer
-
-This tool is provided for legitimate purposes only. Users are responsible for complying with all applicable laws. The authors are not responsible for any misuse.
+MIT — see [LICENSE](LICENSE)

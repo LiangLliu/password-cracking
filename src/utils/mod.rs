@@ -1,8 +1,7 @@
-use anyhow::{Context, Result};
-use std::fs;
+use anyhow::{bail, Context, Result};
 use std::path::Path;
 
-/// 常用密码字符集
+/// Common character sets for brute-force attacks.
 pub mod charsets {
     pub const DIGITS: &str = "0123456789";
     pub const LOWERCASE: &str = "abcdefghijklmnopqrstuvwxyz";
@@ -10,81 +9,65 @@ pub mod charsets {
     pub const SPECIAL: &str = "!@#$%^&*()-_=+[]{}|;:'\",.<>/?`~";
 
     pub fn alphanumeric() -> String {
-        format!("{}{}{}", DIGITS, LOWERCASE, UPPERCASE)
+        format!("{DIGITS}{LOWERCASE}{UPPERCASE}")
     }
 
     pub fn all() -> String {
-        format!("{}{}{}{}", DIGITS, LOWERCASE, UPPERCASE, SPECIAL)
+        format!("{DIGITS}{LOWERCASE}{UPPERCASE}{SPECIAL}")
     }
 }
 
-/// 验证文件是否存在且可读
+/// Validates that a path exists and is a readable file.
 pub fn validate_file(path: &Path) -> Result<()> {
     if !path.exists() {
-        anyhow::bail!("File does not exist: {:?}", path);
+        bail!("File does not exist: {}", path.display());
     }
-
     if !path.is_file() {
-        anyhow::bail!("Path is not a file: {:?}", path);
+        bail!("Not a file: {}", path.display());
     }
-
-    // 尝试打开文件以验证权限
-    fs::File::open(path).with_context(|| format!("Cannot read file: {:?}", path))?;
-
+    std::fs::File::open(path).with_context(|| format!("Cannot read: {}", path.display()))?;
     Ok(())
 }
 
-/// 验证字典路径（可以是文件或目录）
+/// Validates that a wordlist path exists (file or directory).
 pub fn validate_wordlist(path: &Path) -> Result<()> {
     if !path.exists() {
-        anyhow::bail!("Path does not exist: {:?}", path);
+        bail!("Path does not exist: {}", path.display());
     }
-
     if path.is_file() {
-        // 如果是文件，验证是否可读
-        fs::File::open(path).with_context(|| format!("Cannot read file: {:?}", path))?;
+        std::fs::File::open(path).with_context(|| format!("Cannot read: {}", path.display()))?;
     } else if path.is_dir() {
-        // 如果是目录，验证是否可以列出内容
-        fs::read_dir(path).with_context(|| format!("Cannot read directory: {:?}", path))?;
+        std::fs::read_dir(path).with_context(|| format!("Cannot read: {}", path.display()))?;
     } else {
-        anyhow::bail!("Path is neither a file nor a directory: {:?}", path);
+        bail!("Not a file or directory: {}", path.display());
     }
-
     Ok(())
 }
 
-/// 格式化时间显示
-pub fn format_duration(duration: std::time::Duration) -> String {
-    let total_seconds = duration.as_secs();
-    let hours = total_seconds / 3600;
-    let minutes = (total_seconds % 3600) / 60;
-    let seconds = total_seconds % 60;
-
-    if hours > 0 {
-        format!("{}h {}m {}s", hours, minutes, seconds)
-    } else if minutes > 0 {
-        format!("{}m {}s", minutes, seconds)
-    } else {
-        format!("{}s", seconds)
+/// Formats a duration as `1h 2m 3s`.
+pub fn format_duration(d: std::time::Duration) -> String {
+    let s = d.as_secs();
+    let (h, m, s) = (s / 3600, (s % 3600) / 60, s % 60);
+    match h {
+        0 if m == 0 => format!("{s}s"),
+        0 => format!("{m}m {s}s"),
+        _ => format!("{h}h {m}m {s}s"),
     }
 }
 
-/// 格式化大数字（添加千位分隔符）
+/// Formats an integer with thousands separators.
 pub fn format_number(n: u64) -> String {
     let s = n.to_string();
-    let mut result = String::new();
-    let mut count = 0;
-
-    for ch in s.chars().rev() {
-        if count == 3 {
-            result.push(',');
-            count = 0;
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len() + s.len() / 3);
+    let len = chars.len();
+    for (i, c) in chars.iter().enumerate() {
+        if i > 0 && (len - i).is_multiple_of(3) {
+            out.push(',');
         }
-        result.push(ch);
-        count += 1;
+        out.push(*c);
     }
-
-    result.chars().rev().collect()
+    out
 }
 
 #[cfg(test)]
@@ -92,18 +75,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_format_number() {
-        assert_eq!(format_number(1234567890), "1,234,567,890");
+    fn number_formatting() {
+        assert_eq!(format_number(0), "0");
         assert_eq!(format_number(999), "999");
         assert_eq!(format_number(1000), "1,000");
+        assert_eq!(format_number(1_234_567_890), "1,234,567,890");
     }
 
     #[test]
-    fn test_format_duration() {
+    fn duration_formatting() {
         use std::time::Duration;
-
-        assert_eq!(format_duration(Duration::from_secs(45)), "45s");
-        assert_eq!(format_duration(Duration::from_secs(125)), "2m 5s");
-        assert_eq!(format_duration(Duration::from_secs(3665)), "1h 1m 5s");
+        assert_eq!(format_duration(Duration::from_secs(5)), "5s");
+        assert_eq!(format_duration(Duration::from_secs(65)), "1m 5s");
+        assert_eq!(format_duration(Duration::from_secs(3661)), "1h 1m 1s");
     }
 }
