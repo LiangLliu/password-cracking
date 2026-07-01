@@ -1,7 +1,7 @@
 use super::PasswordSource;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::collections::HashSet;
-use std::fs::{read_dir, File};
+use std::fs::{File, read_dir};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 

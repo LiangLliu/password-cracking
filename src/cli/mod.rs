@@ -1,4 +1,4 @@
-use crate::generators::{rules::Rule, GeneratorMode};
+use crate::generators::{GeneratorMode, rules::Rule};
 use crate::utils::{self, charsets};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};

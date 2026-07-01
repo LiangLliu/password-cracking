@@ -180,9 +180,7 @@ fn parse_encryption_info(path: &Path) -> Result<AgileEncryption> {
 
     let version = u16::from_le_bytes([enc_info[0], enc_info[1]]);
     if version != 4 {
-        anyhow::bail!(
-            "Unsupported Office encryption version: {version} (only Agile/v4 supported)"
-        );
+        anyhow::bail!("Unsupported Office encryption version: {version} (only Agile/v4 supported)");
     }
 
     let xml = std::str::from_utf8(&enc_info[8..]).context("Invalid XML in EncryptionInfo")?;

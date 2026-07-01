@@ -53,11 +53,7 @@ pub fn create_source(mode: GeneratorMode) -> Result<Box<dyn PasswordSource>> {
             charset,
             min_length,
             max_length,
-        } => Ok(Box::new(brute_force::BruteForceSource::new(
-            charset,
-            min_length,
-            max_length,
-        )?)),
+        } => Ok(Box::new(brute_force::BruteForceSource::new(charset, min_length, max_length)?)),
         GeneratorMode::Hybrid {
             dictionary_path,
             rules,

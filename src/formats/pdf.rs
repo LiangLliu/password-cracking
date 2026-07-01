@@ -1,5 +1,5 @@
 use super::PasswordVerifier;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::path::Path;
 
 /// PDF password verifier supporting all standard encryption algorithms.
@@ -15,13 +15,13 @@ pub struct PdfVerifier {
 
 /// Parsed encryption parameters from the PDF /Encrypt dictionary.
 struct PdfEncryption {
-    version: u32,      // V
-    revision: u32,     // R
-    length: u32,       // key length in bits
-    owner_hash: Vec<u8>,   // O entry (32 bytes)
-    user_hash: Vec<u8>,    // U entry (32 bytes)
-    permissions: i32,      // P entry
-    id0: Vec<u8>,          // first element of /ID array
+    version: u32,        // V
+    revision: u32,       // R
+    length: u32,         // key length in bits
+    owner_hash: Vec<u8>, // O entry (32 bytes)
+    user_hash: Vec<u8>,  // U entry (32 bytes)
+    permissions: i32,    // P entry
+    id0: Vec<u8>,        // first element of /ID array
     encrypt_metadata: bool,
     /// AES-256 salt for U (only V>=5)
     u_validation_salt: Option<Vec<u8>>,
@@ -156,9 +156,9 @@ impl PdfVerifier {
         if self.enc.revision == 2 {
             // R=2: RC4(key, padding) should equal U
             const PADDING: [u8; 32] = [
-                0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41, 0x64, 0x00, 0x4E, 0x56, 0xFF,
-                0xFA, 0x01, 0x08, 0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68, 0x3E, 0x80, 0x2F, 0x0C,
-                0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
+                0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41, 0x64, 0x00, 0x4E, 0x56, 0xFF, 0xFA,
+                0x01, 0x08, 0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68, 0x3E, 0x80, 0x2F, 0x0C, 0xA9, 0xFE,
+                0x64, 0x53, 0x69, 0x7A,
             ];
             let decrypted = rc4_encrypt(&key, &PADDING);
             decrypted == self.enc.user_hash
@@ -168,9 +168,9 @@ impl PdfVerifier {
             use sha1::Digest;
 
             const PADDING: [u8; 32] = [
-                0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41, 0x64, 0x00, 0x4E, 0x56, 0xFF,
-                0xFA, 0x01, 0x08, 0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68, 0x3E, 0x80, 0x2F, 0x0C,
-                0xA9, 0xFE, 0x64, 0x53, 0x69, 0x7A,
+                0x28, 0xBF, 0x4E, 0x5E, 0x4E, 0x75, 0x8A, 0x41, 0x64, 0x00, 0x4E, 0x56, 0xFF, 0xFA,
+                0x01, 0x08, 0x2E, 0x2E, 0x00, 0xB6, 0xD0, 0x68, 0x3E, 0x80, 0x2F, 0x0C, 0xA9, 0xFE,
+                0x64, 0x53, 0x69, 0x7A,
             ];
 
             let mut hasher = Md5::new();
@@ -246,8 +246,8 @@ fn parse_encryption(data: &[u8]) -> Result<PdfEncryption> {
 
     // Find the trailer to get the /Encrypt object reference and /ID array.
     let trailer = find_trailer(data)?;
-    let encrypt_ref = parse_dict_value(&trailer, b"/Encrypt")
-        .context("Missing /Encrypt in trailer")?;
+    let encrypt_ref =
+        parse_dict_value(&trailer, b"/Encrypt").context("Missing /Encrypt in trailer")?;
     let id_array = parse_id_array(&trailer)?;
 
     // Resolve the Encrypt object
@@ -312,17 +312,13 @@ fn parse_dict_value(dict: &str, key: &[u8]) -> Option<String> {
     // An indirect reference like "8 0 R" spans 3 tokens.
     // A name like "/Standard" is one token.
     // Read until we hit ">>" (end of dict) or "/" (next key).
-    let end = after
-        .find(['>', '/'])
-        .unwrap_or(after.len());
+    let end = after.find(['>', '/']).unwrap_or(after.len());
     Some(after[..end].trim().to_string())
 }
 
 /// Parse the /ID array from the trailer to get the first ID.
 fn parse_id_array(trailer: &str) -> Result<Vec<u8>> {
-    let id_idx = trailer
-        .find("/ID")
-        .context("Missing /ID in trailer")?;
+    let id_idx = trailer.find("/ID").context("Missing /ID in trailer")?;
     let after = &trailer[id_idx..];
     // Find the first hex string <...> after /ID
     let hex_start = after.find('<').context("No hex string in /ID")?;

@@ -1,5 +1,5 @@
 use super::PasswordSource;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 pub struct BruteForceSource {
     charset: Vec<u8>,
