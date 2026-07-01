@@ -123,8 +123,10 @@ SENSITIVE_PATTERNS=(
 
 FOUND_SENSITIVE=false
 for pattern in "${SENSITIVE_PATTERNS[@]}"; do
-    # 只检查暂存的文件，排除 hooks 目录和脚本文件
-    FILES=$(git diff --cached --name-only | grep -v "^hooks/" | grep -v "^scripts/" | grep -v "^\.github/" || true)
+    # 只检查暂存的文件，排除不含真实机密的目录：
+    #   hooks/scripts/.github - 工具与 CI 配置
+    #   tests/docs            - 测试与文档常含公开的示例密码（如 examples 的测试口令）
+    FILES=$(git diff --cached --name-only | grep -v "^hooks/" | grep -v "^scripts/" | grep -v "^\.github/" | grep -v "^tests/" | grep -v "^docs/" || true)
     if [ -n "$FILES" ]; then
         if echo "$FILES" | xargs grep -i -E "$pattern" 2>/dev/null; then
             FOUND_SENSITIVE=true
