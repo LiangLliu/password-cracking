@@ -11,3 +11,8 @@ dependencies = [
     "python-pptx>=0.6.21",
     "msoffcrypto-tool>=5.0.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pikepdf>=10.17.0",
+]

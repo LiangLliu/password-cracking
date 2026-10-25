@@ -61,6 +61,43 @@ def create_test_pdf():
         print(f"❌ Error creating PDF: {e}")
         return None
 
+
+def create_test_pdf_aes128():
+    """Create an AES-128 (V=4 R=4) encrypted PDF using pikepdf.
+
+    This exercises the AES-128 password verification path, including the
+    signed /P permissions and nested /CF /Length entries.
+    The committed test_r6.pdf (AES-256 R6) is intentionally NOT regenerated:
+    it backs a known-answer unit test for ISO 32000-2 Algorithm 2.B.
+    """
+    try:
+        import pikepdf
+
+        base = "temp_aes128_base.pdf"
+        pdf = pikepdf.Pdf.new()
+        page = pikepdf.Page(
+            pikepdf.Dictionary(Type=pikepdf.Name.Page, MediaBox=[0, 0, 200, 200])
+        )
+        pdf.pages.append(page)
+        pdf.save(base)
+
+        output_path = "test_aes128.pdf"
+        with pikepdf.open(base) as p:
+            p.save(
+                output_path,
+                encryption=pikepdf.Encryption(user=PASSWORD, owner="owner-unused", R=4),
+            )
+        os.remove(base)
+        print(f"✓ Created AES-128 PDF: {output_path}")
+        return output_path
+    except ImportError as e:
+        print(f"❌ Missing dependency for AES-128 PDF: {e}")
+        return None
+    except Exception as e:
+        print(f"❌ Error creating AES-128 PDF: {e}")
+        return None
+
+
 def create_test_docx():
     """Create a Word document and optionally encrypt with msoffice-crypt."""
     try:
@@ -221,6 +258,10 @@ def main():
     pdf = create_test_pdf()
     if pdf:
         files_created.append(pdf)
+
+    pdf_aes = create_test_pdf_aes128()
+    if pdf_aes:
+        files_created.append(pdf_aes)
 
     docx = create_test_docx()
     if docx:

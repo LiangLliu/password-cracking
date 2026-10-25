@@ -7,7 +7,9 @@ This directory contains test files for the password cracking tool. All test file
 | File | Format | Encryption |
 |------|--------|-----------|
 | `test.zip` | ZIP | ZipCrypto |
-| `test.pdf` | PDF | RC4-128 |
+| `test.pdf` | PDF | RC4-128 (R3) |
+| `test_aes128.pdf` | PDF | AES-128 (R4) |
+| `test_r6.pdf` | PDF | AES-256 (R6, Algorithm 2.B) |
 | `test.docx` | Word | Agile AES-256 |
 | `test.xlsx` | Excel | Agile AES-256 |
 | `test.pptx` | PowerPoint | Agile AES-256 |
@@ -21,6 +23,8 @@ cd .. && cargo build --release && cd examples
 # Test all formats with dictionary attack
 ../target/release/password-cracking -f test.zip dictionary -w ../wordlists/common-passwords.txt
 ../target/release/password-cracking -f test.pdf dictionary -w ../wordlists/common-passwords.txt
+../target/release/password-cracking -f test_aes128.pdf dictionary -w ../wordlists/common-passwords.txt
+../target/release/password-cracking -f test_r6.pdf dictionary -w ../wordlists/common-passwords.txt
 ../target/release/password-cracking -f test.docx dictionary -w ../wordlists/common-passwords.txt
 ../target/release/password-cracking -f test.xlsx dictionary -w ../wordlists/common-passwords.txt
 ../target/release/password-cracking -f test.pptx dictionary -w ../wordlists/common-passwords.txt
@@ -64,7 +68,7 @@ uv sync              # install dependencies
 uv run python create_test_files.py
 ```
 
-This creates/overwrites: `test.pdf`, `test.docx`, `test.xlsx`, `test.pptx` (all encrypted with password **92eo**).
+This creates/overwrites: `test.pdf`, `test_aes128.pdf`, `test.docx`, `test.xlsx`, `test.pptx` (all encrypted with password **92eo**). `test_r6.pdf` is committed and not regenerated because it backs a known-answer test.
 
 ### Manual Encryption
 

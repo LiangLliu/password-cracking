@@ -129,3 +129,15 @@ fn dictionary_cracks_pdf_r6() {
     };
     assert_eq!(crack(&example("test_r6.pdf"), mode).as_deref(), Some(KNOWN_PASSWORD));
 }
+
+#[test]
+fn dictionary_cracks_pdf_aes128() {
+    // test_aes128.pdf is PDF 1.6 AES-128 (V=4 R=4). Regression test for
+    // top-level /Length parsing (the /CF filter length is in bytes) and
+    // signed /P permissions parsing.
+    let wl = wordlist_with_password();
+    let mode = GeneratorMode::Dictionary {
+        path: wl.path().to_path_buf(),
+    };
+    assert_eq!(crack(&example("test_aes128.pdf"), mode).as_deref(), Some(KNOWN_PASSWORD));
+}

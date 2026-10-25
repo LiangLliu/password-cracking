@@ -203,20 +203,17 @@ impl PasswordSource for RuleSource {
 
     fn estimated_total(&self) -> Option<u64> {
         let base = self.inner.estimated_total()?;
-        // Estimate multiplier: 1 (original) + rules + append_digits
-        let rule_count = self.rules.len() as u64;
-        let append_digits_expansion: u64 = self
-            .rules
-            .iter()
-            .filter_map(|r| {
-                if let Rule::AppendDigits(max) = r {
-                    Some(*max as u64 + 1)
-                } else {
-                    None
-                }
-            })
-            .sum();
-        let multiplier = 1 + rule_count + append_digits_expansion;
+        // Multiplier = original word + one variant per non-append rule
+        // + (max + 1) variants per AppendDigits rule.
+        // No-op rules (e.g. L33t on a word without substitutable letters)
+        // may produce fewer variants, so this is an upper bound.
+        let mut multiplier = 1u64;
+        for rule in &self.rules {
+            multiplier = multiplier.saturating_add(match rule {
+                Rule::AppendDigits(max) => *max as u64 + 1,
+                _ => 1,
+            });
+        }
         Some(base.saturating_mul(multiplier))
     }
 

@@ -26,7 +26,6 @@ impl DictionarySource {
         // Dedup preserving order
         let mut seen = HashSet::new();
         passwords.retain(|p| seen.insert(p.clone()));
-        println!("Loaded {} unique passwords", passwords.len());
         Ok(Self {
             passwords,
             cursor: 0,
@@ -36,13 +35,42 @@ impl DictionarySource {
 
 fn load_file(path: &Path, out: &mut Vec<Box<[u8]>>) -> Result<()> {
     let file = File::open(path).with_context(|| format!("Cannot read {}", path.display()))?;
-    for line in BufReader::new(file).lines().map_while(Result::ok) {
-        let line = line.trim();
-        if !line.is_empty() && !line.starts_with('#') {
-            out.push(line.as_bytes().to_vec().into_boxed_slice());
+    // Read raw bytes, not UTF-8 lines: wordlists are often encoded in legacy
+    // code pages (e.g. GBK). `BufRead::lines()` would stop at the first
+    // invalid UTF-8 line and silently truncate the rest of the file.
+    let mut reader = BufReader::new(file);
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        let n = reader.read_until(b'\n', &mut buf)?;
+        if n == 0 {
+            break;
+        }
+        let line = trim_ascii(&buf);
+        if !line.is_empty() && !line.starts_with(b"#") {
+            out.push(line.to_vec().into_boxed_slice());
         }
     }
     Ok(())
+}
+
+/// Trim ASCII whitespace (including `\r`) from both ends of a byte slice.
+fn trim_ascii(mut s: &[u8]) -> &[u8] {
+    while let [first, rest @ ..] = s {
+        if first.is_ascii_whitespace() {
+            s = rest;
+        } else {
+            break;
+        }
+    }
+    while let [rest @ .., last] = s {
+        if last.is_ascii_whitespace() {
+            s = rest;
+        } else {
+            break;
+        }
+    }
+    s
 }
 
 fn load_dir(path: &Path, out: &mut Vec<Box<[u8]>>) -> Result<()> {
@@ -88,5 +116,43 @@ impl PasswordSource for DictionarySource {
 
     fn name(&self) -> &str {
         "dictionary"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn loads_non_utf8_lines_without_truncation() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(b"first\n").unwrap();
+        // GBK-encoded "密码" — invalid UTF-8, must not truncate the wordlist.
+        f.write_all(&[0xC3, 0xDC, 0xC2, 0xEB, b'\n']).unwrap();
+        f.write_all(b"third\n").unwrap();
+        f.flush().unwrap();
+
+        let mut out = Vec::new();
+        load_file(f.path(), &mut out).unwrap();
+
+        assert_eq!(out.len(), 3);
+        assert_eq!(&*out[0], b"first");
+        assert_eq!(&*out[1], &[0xC3, 0xDC, 0xC2, 0xEB]);
+        assert_eq!(&*out[2], b"third");
+    }
+
+    #[test]
+    fn skips_comments_blank_lines_and_crlf() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        f.write_all(b"# comment\n\n  spaced  \r\nlast\r\n").unwrap();
+        f.flush().unwrap();
+
+        let mut out = Vec::new();
+        load_file(f.path(), &mut out).unwrap();
+
+        assert_eq!(out.len(), 2);
+        assert_eq!(&*out[0], b"spaced");
+        assert_eq!(&*out[1], b"last");
     }
 }

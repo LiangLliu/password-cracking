@@ -201,7 +201,7 @@ fn parse_encryption(data: &[u8]) -> Result<PdfEncryption> {
     let version = parse_int(&enc_dict_str, b"/V").unwrap_or(0);
     let revision = parse_int(&enc_dict_str, b"/R").unwrap_or(0);
     let length = parse_int(&enc_dict_str, b"/Length").unwrap_or(40);
-    let permissions = parse_int(&enc_dict_str, b"/P").unwrap_or(0) as i32;
+    let permissions = parse_i32(&enc_dict_str, b"/P").unwrap_or(0);
     let owner_hash = parse_hex_string(&enc_dict_str, b"/O").context("Missing /O")?;
     let user_hash = parse_hex_string(&enc_dict_str, b"/U").context("Missing /U")?;
 
@@ -243,17 +243,90 @@ fn find_trailer(data: &[u8]) -> Result<String> {
 }
 
 /// Parse a value like "8 0 R" from a dictionary string for a given key.
+///
+/// Only keys at the top level of the dictionary are considered: nested
+/// dictionaries (e.g. the `/CF << ... >>` crypt-filter block) are skipped.
+/// This matters because keys like `/Length` appear both at top level (bits)
+/// and inside `/CF` (bytes).
 fn parse_dict_value(dict: &str, key: &[u8]) -> Option<String> {
     let key_str = std::str::from_utf8(key).ok()?;
-    let idx = dict.find(key_str)?;
-    let after = &dict[idx + key_str.len()..];
-    let after = after.trim_start();
+    let bytes = dict.as_bytes();
+    let key_bytes = key_str.as_bytes();
+    let mut i = 0usize;
+    let mut depth = 0i32;
 
-    // An indirect reference like "8 0 R" spans 3 tokens.
-    // A name like "/Standard" is one token.
-    // Read until we hit ">>" (end of dict) or "/" (next key).
-    let end = after.find(['>', '/']).unwrap_or(after.len());
-    Some(after[..end].trim().to_string())
+    while i < bytes.len() {
+        if bytes[i..].starts_with(b"<<") {
+            depth += 1;
+            i += 2;
+            continue;
+        }
+        if bytes[i..].starts_with(b">>") {
+            depth -= 1;
+            i += 2;
+            continue;
+        }
+        // Skip hex strings so their contents cannot be mistaken for keys.
+        if bytes[i] == b'<'
+            && let Some(end) = dict[i + 1..].find('>')
+        {
+            i += 1 + end + 1;
+            continue;
+        }
+        if depth == 1
+            && bytes[i..].starts_with(key_bytes)
+            && bytes
+                .get(i + key_bytes.len())
+                .is_some_and(|c| c.is_ascii_whitespace() || *c == b'<' || *c == b'/' || *c == b'[')
+        {
+            let mut j = i + key_bytes.len();
+            while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                j += 1;
+            }
+            if j >= bytes.len() {
+                return None;
+            }
+            let start = j;
+            if bytes[j..].starts_with(b"<<") {
+                // Nested dictionary value: capture it with balanced delimiters.
+                let mut d = 0i32;
+                let mut k = j;
+                while k < bytes.len() {
+                    if bytes[k..].starts_with(b"<<") {
+                        d += 1;
+                        k += 2;
+                    } else if bytes[k..].starts_with(b">>") {
+                        d -= 1;
+                        k += 2;
+                        if d == 0 {
+                            break;
+                        }
+                    } else {
+                        k += 1;
+                    }
+                }
+                return Some(dict[start..k].to_string());
+            }
+            if bytes[j] == b'<' {
+                let end = dict[j + 1..].find('>')?;
+                return Some(dict[start..j + 1 + end + 1].to_string());
+            }
+            // Bare value: read until the next top-level key or closing
+            // delimiter. This keeps multi-token indirect references intact
+            // (e.g. "/Encrypt 4 0 R").
+            let mut k = j;
+            while k < bytes.len() {
+                let c = bytes[k];
+                if c == b'>' || c == b'/' || c == b'[' || c == b']' {
+                    break;
+                }
+                k += 1;
+            }
+            return Some(dict[start..k].trim().to_string());
+        }
+        i += 1;
+    }
+    None
 }
 
 /// Parse the /ID array from the trailer to get the first ID.
@@ -293,8 +366,17 @@ fn resolve_object(data: &[u8], ref_str: &str) -> Result<Vec<u8>> {
     Ok(after_obj[..obj_end].to_vec())
 }
 
-/// Parse an integer value for a key from a dictionary string.
+/// Parse an unsigned integer value for a key from a dictionary string.
 fn parse_int(dict: &str, key: &[u8]) -> Option<u32> {
+    let val = parse_dict_value(dict, key)?;
+    val.parse().ok()
+}
+
+/// Parse a signed 32-bit integer value for a key from a dictionary string.
+///
+/// The `/P` permissions entry is written as a signed integer by many PDF
+/// producers (e.g. `-1028`), so it must not be parsed as `u32`.
+fn parse_i32(dict: &str, key: &[u8]) -> Option<i32> {
     let val = parse_dict_value(dict, key)?;
     val.parse().ok()
 }
@@ -432,6 +514,24 @@ mod tests {
     fn hex_decode_basic() {
         assert_eq!(hex_decode("48656c6c6f").unwrap(), b"Hello");
         assert_eq!(hex_decode("48 65 6c 6c 6f").unwrap(), b"Hello");
+    }
+
+    #[test]
+    fn top_level_dict_skips_nested_length() {
+        // Real-world shape: /CF has a nested /Length (bytes), while the
+        // top-level /Length is in bits. The parser must return the latter.
+        let dict = "<< /CF << /StdCF << /CFM /AESV2 /Length 16 >> >> \
+                    /Filter /Standard /Length 128 /O <aabb> /P -1028 /R 4 /V 4 >>";
+        assert_eq!(parse_dict_value(dict, b"/Length").as_deref(), Some("128"));
+        assert_eq!(parse_dict_value(dict, b"/P").as_deref(), Some("-1028"));
+        assert_eq!(parse_dict_value(dict, b"/R").as_deref(), Some("4"));
+        assert_eq!(parse_dict_value(dict, b"/O").as_deref(), Some("<aabb>"));
+    }
+
+    #[test]
+    fn top_level_dict_keeps_indirect_reference() {
+        let dict = "trailer << /Size 9 /ID [<aa><bb>] /Encrypt 4 0 R >>";
+        assert_eq!(parse_dict_value(dict, b"/Encrypt").as_deref(), Some("4 0 R"));
     }
 
     #[test]
