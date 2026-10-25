@@ -12,7 +12,10 @@ use zip::ZipArchive;
 /// rejects ~99.6% of wrong passwords without any file data decryption.
 pub struct ZipVerifier {
     file_path: std::path::PathBuf,
-    first_encrypted_index: usize,
+    /// Every encrypted entry. A password is correct only if it decrypts all
+    /// of them (archives created by common tools use one password per entry,
+    /// but ZIP allows different passwords per entry).
+    encrypted_indices: Vec<usize>,
     encryption: Encryption,
     /// Pre-read 12-byte encryption header for ZipCrypto quick check.
     crypto_header: [u8; 12],
@@ -112,21 +115,20 @@ impl ZipVerifier {
         let file = File::open(path).context("Failed to open ZIP")?;
         let mut archive = ZipArchive::new(file).context("Invalid ZIP file")?;
 
-        let mut first_encrypted = None;
+        let mut encrypted_indices = Vec::new();
         let mut encryption = Encryption::ZipCrypto;
 
         for i in 0..archive.len() {
             let entry = archive.by_index_raw(i)?;
             if entry.encrypted() {
-                first_encrypted = Some(i);
+                encrypted_indices.push(i);
                 if entry.compression() == zip::CompressionMethod::Aes {
                     encryption = Encryption::Aes;
                 }
-                break;
             }
         }
 
-        let first_encrypted_index = first_encrypted.context("ZIP is not encrypted")?;
+        let first_encrypted_index = *encrypted_indices.first().context("ZIP is not encrypted")?;
 
         // For ZipCrypto, extract the 12-byte header + metadata for fast checking.
         let (crypto_header, crc32, last_mod_time, flags) = if encryption == Encryption::ZipCrypto {
@@ -137,7 +139,7 @@ impl ZipVerifier {
 
         Ok(Self {
             file_path: path.to_path_buf(),
-            first_encrypted_index,
+            encrypted_indices,
             encryption,
             crypto_header,
             crc32,
@@ -263,13 +265,18 @@ impl PasswordVerifier for ZipVerifier {
                 }
             };
 
-            match archive.by_index_decrypt(self.first_encrypted_index, password) {
-                Ok(mut reader) => {
-                    let mut buf = Vec::with_capacity(4096);
-                    reader.read_to_end(&mut buf).is_ok()
+            for &index in &self.encrypted_indices {
+                match archive.by_index_decrypt(index, password) {
+                    Ok(mut reader) => {
+                        let mut buf = Vec::new();
+                        if reader.read_to_end(&mut buf).is_err() {
+                            return false;
+                        }
+                    }
+                    Err(_) => return false,
                 }
-                Err(_) => false,
             }
+            true
         })
     }
 

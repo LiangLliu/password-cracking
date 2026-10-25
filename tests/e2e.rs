@@ -153,3 +153,24 @@ fn dictionary_cracks_pdf_xref_stream() {
     };
     assert_eq!(crack(&example("test_xref.pdf"), mode).as_deref(), Some(KNOWN_PASSWORD));
 }
+
+#[test]
+fn dictionary_cracks_zip_multi_entry() {
+    // Both entries are encrypted; the password must decrypt all of them.
+    let wl = wordlist_with_password();
+    let mode = GeneratorMode::Dictionary {
+        path: wl.path().to_path_buf(),
+    };
+    assert_eq!(crack(&example("test_multi.zip"), mode).as_deref(), Some(KNOWN_PASSWORD));
+}
+
+#[test]
+fn dictionary_cracks_zip_mixed_entries() {
+    // First entry is stored unencrypted, second is encrypted. The verifier
+    // must locate and verify the encrypted entry, not assume entry 0.
+    let wl = wordlist_with_password();
+    let mode = GeneratorMode::Dictionary {
+        path: wl.path().to_path_buf(),
+    };
+    assert_eq!(crack(&example("test_mixed.zip"), mode).as_deref(), Some(KNOWN_PASSWORD));
+}
