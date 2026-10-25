@@ -63,9 +63,8 @@ fn load_dir(path: &Path, out: &mut Vec<Box<[u8]>>) -> Result<()> {
 
 impl PasswordSource for DictionarySource {
     fn fill_batch(&mut self, batch: &mut Vec<Box<[u8]>>) -> bool {
-        const BATCH: usize = 1024;
         batch.clear();
-        let end = (self.cursor + BATCH).min(self.passwords.len());
+        let end = (self.cursor + super::BATCH_SIZE).min(self.passwords.len());
         if self.cursor >= self.passwords.len() {
             return false;
         }
