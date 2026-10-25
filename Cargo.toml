@@ -10,7 +10,6 @@ license = "MIT"
 clap = { version = "4.6", features = ["derive", "cargo"] }
 
 # Concurrency
-rayon = "1.12"
 crossbeam-channel = "0.5"
 num_cpus = "1.17"
 
@@ -57,7 +56,5 @@ opt-level = 1
 [package.metadata.cargo-machete]
 # md-5 is used via `md5::Md5` in src/formats/pdf.rs; machete misses it due to the
 # crate rename (crate `md-5` -> use `md5`). It is a real dependency, not unused.
-# memmap2 will be enabled in Phase 2 (wordlist streaming/mmap); ignored for now to
-# keep pre-commit (cargo machete) quiet until then.
-ignored = ["md-5", "memmap2"]
+ignored = ["md-5"]
 

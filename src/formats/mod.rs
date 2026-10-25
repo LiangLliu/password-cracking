@@ -21,14 +21,32 @@ pub trait PasswordVerifier: Send + Sync {
     fn encryption_info(&self) -> &str;
 }
 
+/// Options that influence password verification.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct VerifyOptions {
+    /// Also try the PDF owner password. Off by default because it roughly
+    /// triples verification cost for every candidate.
+    pub try_pdf_owner: bool,
+}
+
 /// Creates the appropriate verifier by sniffing the file's magic bytes.
 ///
 /// Falls back to extension matching when magic bytes are inconclusive.
 pub fn create_verifier(path: &Path) -> Result<Box<dyn PasswordVerifier>> {
+    create_verifier_with_options(path, VerifyOptions::default())
+}
+
+/// Like [`create_verifier`], with explicit verification options.
+pub fn create_verifier_with_options(
+    path: &Path,
+    options: VerifyOptions,
+) -> Result<Box<dyn PasswordVerifier>> {
     let magic = read_magic(path)?;
     match detect_format(&magic, path) {
         FormatKind::Zip => zip::ZipVerifier::new(path).map(|v| Box::new(v) as _),
-        FormatKind::Pdf => pdf::PdfVerifier::new(path).map(|v| Box::new(v) as _),
+        FormatKind::Pdf => {
+            pdf::PdfVerifier::new(path, options.try_pdf_owner).map(|v| Box::new(v) as _)
+        }
         FormatKind::Office => office::OfficeVerifier::new(path).map(|v| Box::new(v) as _),
     }
 }

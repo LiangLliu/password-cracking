@@ -56,12 +56,12 @@ impl BruteForceSource {
 }
 
 impl PasswordSource for BruteForceSource {
-    fn fill_batch(&mut self, batch: &mut Vec<Box<[u8]>>) -> bool {
+    fn fill_batch(&mut self, batch: &mut Vec<Box<[u8]>>, max: usize) -> bool {
         if self.exhausted {
             return false;
         }
         batch.clear();
-        for _ in 0..super::BATCH_SIZE {
+        for _ in 0..max {
             if self.exhausted {
                 break;
             }
@@ -131,7 +131,7 @@ mod tests {
     fn sequence() {
         let mut src = BruteForceSource::new("ab".into(), 1, 2).unwrap();
         let mut batch = Vec::new();
-        src.fill_batch(&mut batch);
+        src.fill_batch(&mut batch, 1024);
         assert_eq!(&*batch[0], b"a");
         assert_eq!(&*batch[1], b"b");
     }

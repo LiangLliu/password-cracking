@@ -19,12 +19,28 @@ pub struct Cli {
     pub file: PathBuf,
 
     /// Number of threads (default: all logical cores)
-    #[arg(short, long)]
+    #[arg(short, long, global = true)]
     pub threads: Option<usize>,
 
     /// Quiet mode: only show the result
-    #[arg(short, long)]
+    #[arg(short, long, global = true)]
     pub quiet: bool,
+
+    /// Save progress to this file periodically, allowing --resume
+    #[arg(long, global = true, value_name = "PATH")]
+    pub checkpoint: Option<PathBuf>,
+
+    /// Resume from the file given by --checkpoint
+    #[arg(long, global = true, requires = "checkpoint")]
+    pub resume: bool,
+
+    /// Seconds between checkpoint writes (default: 5)
+    #[arg(long, global = true, default_value = "5", requires = "checkpoint")]
+    pub checkpoint_interval: u64,
+
+    /// Also try PDF owner passwords (slower: ~3x verification cost)
+    #[arg(long, global = true)]
+    pub pdf_owner: bool,
 
     /// Attack mode
     #[command(subcommand)]
@@ -38,6 +54,9 @@ pub enum AttackMode {
         /// Path to wordlist file or directory of .txt files
         #[arg(short, long)]
         wordlist: PathBuf,
+        /// Remove duplicate candidates (uses memory proportional to uniques)
+        #[arg(long)]
+        dedup: bool,
     },
     /// Brute-force attack over a character set
     BruteForce {
@@ -83,10 +102,11 @@ pub enum AttackMode {
 impl Cli {
     pub fn build_generator_mode(&self) -> Result<GeneratorMode> {
         match &self.mode {
-            AttackMode::Dictionary { wordlist } => {
+            AttackMode::Dictionary { wordlist, dedup } => {
                 utils::validate_wordlist(wordlist)?;
                 Ok(GeneratorMode::Dictionary {
                     path: wordlist.clone(),
+                    dedup: *dedup,
                 })
             }
             AttackMode::BruteForce {
@@ -165,7 +185,32 @@ pub fn run() -> Result<()> {
         .with_context(|| format!("Invalid target file: {}", cli.file.display()))?;
 
     let mode = cli.build_generator_mode()?;
-    let source = crate::generators::create_source(mode)?;
+    let mut source = crate::generators::create_source(mode)?;
+
+    // Resume from a checkpoint before starting the engine.
+    if let Some(ckpt) = &cli.checkpoint {
+        if cli.resume && ckpt.exists() {
+            let content = std::fs::read_to_string(ckpt)
+                .with_context(|| format!("Cannot read checkpoint {}", ckpt.display()))?;
+            let mut lines = content.lines();
+            let name = lines.next().unwrap_or_default();
+            let state = lines.next().unwrap_or_default();
+            if name != source.name() {
+                anyhow::bail!(
+                    "Checkpoint belongs to attack '{name}', but this run is '{}'",
+                    source.name()
+                );
+            }
+            source
+                .restore(state)
+                .with_context(|| format!("Invalid checkpoint state in {}", ckpt.display()))?;
+            if !cli.quiet {
+                println!("Resumed from {}", ckpt.display());
+            }
+        } else if cli.resume && !cli.quiet {
+            eprintln!("No checkpoint at {}; starting from scratch", ckpt.display());
+        }
+    }
 
     if !cli.quiet {
         println!("Password Cracker");
@@ -173,8 +218,24 @@ pub fn run() -> Result<()> {
         println!("Target: {}", cli.file.display());
     }
 
-    let engine = crate::engine::CrackerEngine::new(&cli.file, source, cli.threads)?;
+    let options = crate::formats::VerifyOptions {
+        try_pdf_owner: cli.pdf_owner,
+    };
+    let engine =
+        crate::engine::CrackerEngine::new_with_options(&cli.file, source, cli.threads, options)?;
+    let engine = match &cli.checkpoint {
+        Some(path) => engine.with_checkpoint(
+            path.clone(),
+            std::time::Duration::from_secs(cli.checkpoint_interval.max(1)),
+        ),
+        None => engine,
+    };
     let result = engine.crack(cli.quiet)?;
+
+    // The search is finished (found or exhausted); a checkpoint is stale.
+    if let Some(path) = &cli.checkpoint {
+        let _ = std::fs::remove_file(path);
+    }
 
     if !cli.quiet {
         println!("\nResult");

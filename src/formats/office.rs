@@ -139,8 +139,9 @@ impl OfficeVerifier {
 }
 
 impl PasswordVerifier for OfficeVerifier {
-    fn quick_check(&self, password: &[u8]) -> bool {
-        self.verify_password(password)
+    fn quick_check(&self, _password: &[u8]) -> bool {
+        // Agile verification is inherently expensive; run it once in `verify`.
+        true
     }
 
     fn verify(&self, password: &[u8]) -> bool {

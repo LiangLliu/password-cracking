@@ -17,6 +17,7 @@ const PADDING: [u8; 32] = [
 /// - AES-256 (V=5, R=5/R=6)
 pub struct PdfVerifier {
     enc: PdfEncryption,
+    try_owner: bool,
 }
 
 /// Parsed encryption parameters from the PDF /Encrypt dictionary.
@@ -36,10 +37,10 @@ struct PdfEncryption {
 }
 
 impl PdfVerifier {
-    pub fn new(path: &Path) -> Result<Self> {
+    pub fn new(path: &Path, try_owner: bool) -> Result<Self> {
         let data = std::fs::read(path).context("Failed to read PDF")?;
         let enc = parse_encryption(&data)?;
-        Ok(Self { enc })
+        Ok(Self { enc, try_owner })
     }
 
     /// Key derivation for RC4 40/128-bit and AES-128 (V=1,2,4, R=2,3,4).
@@ -90,7 +91,7 @@ impl PdfVerifier {
         if self.verify_user_password(password) {
             return true;
         }
-        self.verify_owner_password(password)
+        self.try_owner && self.verify_owner_password(password)
     }
 
     /// Verify the user password against the U entry.
@@ -216,9 +217,10 @@ impl PdfVerifier {
 }
 
 impl PasswordVerifier for PdfVerifier {
-    fn quick_check(&self, password: &[u8]) -> bool {
-        // For PDF, password verification IS the check.
-        self.verify_password(password)
+    fn quick_check(&self, _password: &[u8]) -> bool {
+        // PDF verification has no cheaper filter; let `verify` do the work
+        // exactly once (returning true here avoids double verification).
+        true
     }
 
     fn verify(&self, password: &[u8]) -> bool {

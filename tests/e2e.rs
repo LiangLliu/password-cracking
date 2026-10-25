@@ -31,8 +31,18 @@ fn wordlist_with_password() -> tempfile::NamedTempFile {
 
 /// 用给定 GeneratorMode 对给定文件跑一次破解,返回找到的密码。
 fn crack(file: &std::path::Path, mode: GeneratorMode) -> Option<String> {
+    crack_with(file, mode, password_cracking::formats::VerifyOptions::default())
+}
+
+/// 同上,但可指定验证选项(如 PDF owner 密码)。
+fn crack_with(
+    file: &std::path::Path,
+    mode: GeneratorMode,
+    options: password_cracking::formats::VerifyOptions,
+) -> Option<String> {
     let source = create_source(mode).expect("create source");
-    let engine = CrackerEngine::new(file, source, Some(2)).expect("build engine");
+    let engine =
+        CrackerEngine::new_with_options(file, source, Some(2), options).expect("build engine");
     let result = engine.crack(true).expect("crack runs");
     result.password
 }
@@ -42,6 +52,7 @@ fn dictionary_cracks_zip() {
     let wl = wordlist_with_password();
     let mode = GeneratorMode::Dictionary {
         path: wl.path().to_path_buf(),
+        dedup: false,
     };
     assert_eq!(crack(&example("test.zip"), mode).as_deref(), Some(KNOWN_PASSWORD));
 }
@@ -51,6 +62,7 @@ fn dictionary_cracks_pdf() {
     let wl = wordlist_with_password();
     let mode = GeneratorMode::Dictionary {
         path: wl.path().to_path_buf(),
+        dedup: false,
     };
     assert_eq!(crack(&example("test.pdf"), mode).as_deref(), Some(KNOWN_PASSWORD));
 }
@@ -60,6 +72,7 @@ fn dictionary_cracks_docx() {
     let wl = wordlist_with_password();
     let mode = GeneratorMode::Dictionary {
         path: wl.path().to_path_buf(),
+        dedup: false,
     };
     assert_eq!(crack(&example("test.docx"), mode).as_deref(), Some(KNOWN_PASSWORD));
 }
@@ -69,6 +82,7 @@ fn dictionary_cracks_xlsx() {
     let wl = wordlist_with_password();
     let mode = GeneratorMode::Dictionary {
         path: wl.path().to_path_buf(),
+        dedup: false,
     };
     assert_eq!(crack(&example("test.xlsx"), mode).as_deref(), Some(KNOWN_PASSWORD));
 }
@@ -78,6 +92,7 @@ fn dictionary_cracks_pptx() {
     let wl = wordlist_with_password();
     let mode = GeneratorMode::Dictionary {
         path: wl.path().to_path_buf(),
+        dedup: false,
     };
     assert_eq!(crack(&example("test.pptx"), mode).as_deref(), Some(KNOWN_PASSWORD));
 }
@@ -115,6 +130,7 @@ fn wrong_wordlist_returns_none() {
     f.flush().unwrap();
     let mode = GeneratorMode::Dictionary {
         path: f.path().to_path_buf(),
+        dedup: false,
     };
     assert_eq!(crack(&example("test.zip"), mode), None);
 }
@@ -126,6 +142,7 @@ fn dictionary_cracks_pdf_r6() {
     let wl = wordlist_with_password();
     let mode = GeneratorMode::Dictionary {
         path: wl.path().to_path_buf(),
+        dedup: false,
     };
     assert_eq!(crack(&example("test_r6.pdf"), mode).as_deref(), Some(KNOWN_PASSWORD));
 }
@@ -138,6 +155,7 @@ fn dictionary_cracks_pdf_aes128() {
     let wl = wordlist_with_password();
     let mode = GeneratorMode::Dictionary {
         path: wl.path().to_path_buf(),
+        dedup: false,
     };
     assert_eq!(crack(&example("test_aes128.pdf"), mode).as_deref(), Some(KNOWN_PASSWORD));
 }
@@ -150,6 +168,7 @@ fn dictionary_cracks_pdf_xref_stream() {
     let wl = wordlist_with_password();
     let mode = GeneratorMode::Dictionary {
         path: wl.path().to_path_buf(),
+        dedup: false,
     };
     assert_eq!(crack(&example("test_xref.pdf"), mode).as_deref(), Some(KNOWN_PASSWORD));
 }
@@ -160,6 +179,7 @@ fn dictionary_cracks_zip_multi_entry() {
     let wl = wordlist_with_password();
     let mode = GeneratorMode::Dictionary {
         path: wl.path().to_path_buf(),
+        dedup: false,
     };
     assert_eq!(crack(&example("test_multi.zip"), mode).as_deref(), Some(KNOWN_PASSWORD));
 }
@@ -171,6 +191,7 @@ fn dictionary_cracks_zip_mixed_entries() {
     let wl = wordlist_with_password();
     let mode = GeneratorMode::Dictionary {
         path: wl.path().to_path_buf(),
+        dedup: false,
     };
     assert_eq!(crack(&example("test_mixed.zip"), mode).as_deref(), Some(KNOWN_PASSWORD));
 }
@@ -181,8 +202,15 @@ fn dictionary_cracks_pdf_owner_password_r4() {
     let wl = wordlist_with_password();
     let mode = GeneratorMode::Dictionary {
         path: wl.path().to_path_buf(),
+        dedup: false,
     };
-    assert_eq!(crack(&example("test_owner_r4.pdf"), mode).as_deref(), Some(KNOWN_PASSWORD));
+    let options = password_cracking::formats::VerifyOptions {
+        try_pdf_owner: true,
+    };
+    assert_eq!(
+        crack_with(&example("test_owner_r4.pdf"), mode, options).as_deref(),
+        Some(KNOWN_PASSWORD)
+    );
 }
 
 #[test]
@@ -191,6 +219,13 @@ fn dictionary_cracks_pdf_owner_password_r6() {
     let wl = wordlist_with_password();
     let mode = GeneratorMode::Dictionary {
         path: wl.path().to_path_buf(),
+        dedup: false,
     };
-    assert_eq!(crack(&example("test_owner_r6.pdf"), mode).as_deref(), Some(KNOWN_PASSWORD));
+    let options = password_cracking::formats::VerifyOptions {
+        try_pdf_owner: true,
+    };
+    assert_eq!(
+        crack_with(&example("test_owner_r6.pdf"), mode, options).as_deref(),
+        Some(KNOWN_PASSWORD)
+    );
 }

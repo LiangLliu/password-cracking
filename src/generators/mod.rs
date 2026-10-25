@@ -1,8 +1,5 @@
 use anyhow::Result;
 
-/// Number of candidates produced per `fill_batch` call.
-pub(crate) const BATCH_SIZE: usize = 1024;
-
 pub mod brute_force;
 pub mod dictionary;
 pub mod rules;
@@ -12,9 +9,10 @@ pub mod rules;
 /// Implementations must never hold the entire search space in memory.
 /// Use [`fill_batch`] to pull a chunk of candidates at a time.
 pub trait PasswordSource: Send {
-    /// Fills `batch` with candidates. Returns `false` when exhausted.
+    /// Fills up to `max` candidates into `batch`. Returns `false` when the
+    /// source is exhausted (the batch may still contain a final partial set).
     /// The batch is cleared before filling.
-    fn fill_batch(&mut self, batch: &mut Vec<Box<[u8]>>) -> bool;
+    fn fill_batch(&mut self, batch: &mut Vec<Box<[u8]>>, max: usize) -> bool;
 
     /// Estimated total candidates for progress display. `None` if unknown.
     fn estimated_total(&self) -> Option<u64>;
@@ -34,6 +32,9 @@ pub trait PasswordSource: Send {
 pub enum GeneratorMode {
     Dictionary {
         path: std::path::PathBuf,
+        /// Deduplicate candidates. Requires remembering hashes (memory grows
+        /// with unique passwords), so it is off by default.
+        dedup: bool,
     },
     BruteForce {
         charset: String,
@@ -49,8 +50,8 @@ pub enum GeneratorMode {
 /// Creates a password source from the given mode.
 pub fn create_source(mode: GeneratorMode) -> Result<Box<dyn PasswordSource>> {
     match mode {
-        GeneratorMode::Dictionary { path } => {
-            Ok(Box::new(dictionary::DictionarySource::new(&path)?))
+        GeneratorMode::Dictionary { path, dedup } => {
+            Ok(Box::new(dictionary::DictionarySource::with_dedup(&path, dedup)?))
         }
         GeneratorMode::BruteForce {
             charset,

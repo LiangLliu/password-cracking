@@ -167,11 +167,11 @@ impl RuleSource {
 }
 
 impl PasswordSource for RuleSource {
-    fn fill_batch(&mut self, batch: &mut Vec<Box<[u8]>>) -> bool {
+    fn fill_batch(&mut self, batch: &mut Vec<Box<[u8]>>, max: usize) -> bool {
         batch.clear();
 
         // First, drain any pending mutations from the previous word.
-        while batch.len() < super::BATCH_SIZE {
+        while batch.len() < max {
             match self.pending.pop_front() {
                 Some(p) => batch.push(p),
                 None => break,
@@ -181,15 +181,15 @@ impl PasswordSource for RuleSource {
         // Then, keep pulling dictionary words and generating mutations
         // until the batch is full or the dictionary is exhausted.
         let mut dict_batch: Vec<Box<[u8]>> = Vec::new();
-        while batch.len() < super::BATCH_SIZE {
+        while batch.len() < max {
             dict_batch.clear();
-            if !self.inner.fill_batch(&mut dict_batch) {
+            if !self.inner.fill_batch(&mut dict_batch, max) {
                 break;
             }
             for word in dict_batch.drain(..) {
                 let mutations = self.generate_mutations(&word);
                 for m in mutations {
-                    if batch.len() < super::BATCH_SIZE {
+                    if batch.len() < max {
                         batch.push(m);
                     } else {
                         self.pending.push_back(m);
@@ -277,7 +277,7 @@ mod tests {
 
         let mut all: Vec<Box<[u8]>> = Vec::new();
         let mut batch = Vec::new();
-        while src.fill_batch(&mut batch) {
+        while src.fill_batch(&mut batch, 1024) {
             all.append(&mut batch);
         }
 
