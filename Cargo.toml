@@ -21,7 +21,7 @@ indicatif = "0.18"
 anyhow = "1.0"
 
 # ZIP
-zip = { version = "8.6", default-features = false, features = ["aes-crypto", "deflate"] }
+zip = { version = "9.1", default-features = false, features = ["aes-crypto", "deflate"] }
 
 # Crypto: hashes
 sha2 = "0.11"
