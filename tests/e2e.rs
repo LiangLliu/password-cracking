@@ -118,3 +118,17 @@ fn wrong_wordlist_returns_none() {
     };
     assert_eq!(crack(&example("test.zip"), mode), None);
 }
+
+#[test]
+fn dictionary_cracks_pdf_r6() {
+    // test_r6.pdf 是 PDF 2.0 AES-256 R6(Algorithm 2.B 硬化哈希)。
+    // 修复前当前实现只做单轮 SHA256(R5 算法),对 R6 会失败。
+    let wl = wordlist_with_password();
+    let mode = GeneratorMode::Dictionary {
+        path: wl.path().to_path_buf(),
+    };
+    assert_eq!(
+        crack(&example("test_r6.pdf"), mode).as_deref(),
+        Some(KNOWN_PASSWORD)
+    );
+}
