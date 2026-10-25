@@ -23,11 +23,8 @@ struct PdfEncryption {
     permissions: i32,    // P entry
     id0: Vec<u8>,        // first element of /ID array
     encrypt_metadata: bool,
-    /// AES-256 salt for U (only V>=5)
+    /// AES-256 validation salt for U (only V>=5)
     u_validation_salt: Option<Vec<u8>>,
-    /// AES-256 salt for O (only V>=5)
-    #[allow(dead_code)]
-    o_validation_salt: Option<Vec<u8>>,
 }
 
 impl PdfVerifier {
@@ -35,16 +32,6 @@ impl PdfVerifier {
         let data = std::fs::read(path).context("Failed to read PDF")?;
         let enc = parse_encryption(&data)?;
         Ok(Self { enc })
-    }
-
-    /// Compute the encryption key from a user password.
-    #[allow(dead_code)]
-    fn derive_key(&self, password: &[u8]) -> Vec<u8> {
-        if self.enc.version >= 5 {
-            self.derive_key_aes256(password)
-        } else {
-            self.derive_key_rc4(password)
-        }
     }
 
     /// Key derivation for RC4 40/128-bit and AES-128 (V=1,2,4, R=2,3,4).
@@ -103,43 +90,6 @@ impl PdfVerifier {
         hash
     }
 
-    /// Key derivation for AES-256 (V=5, R=5/R=6).
-    #[allow(dead_code)]
-    fn derive_key_aes256(&self, password: &[u8]) -> Vec<u8> {
-        use sha2::{Digest, Sha256};
-
-        if self.enc.revision == 5 {
-            // R=5: SHA256(password + validation_salt)
-            let salt = self.enc.u_validation_salt.as_deref().unwrap_or(&[]);
-            let mut hasher = Sha256::new();
-            hasher.update(password);
-            hasher.update(salt);
-            hasher.finalize().to_vec()
-        } else {
-            // R=6: iterative hashing with XOR
-            let salt = self.enc.u_validation_salt.as_deref().unwrap_or(&[]);
-            let mut input = Vec::with_capacity(password.len() + salt.len());
-            input.extend_from_slice(password);
-            input.extend_from_slice(salt);
-
-            let mut current = Sha256::digest(&input).to_vec();
-            // R=6 performs 64 rounds of alternating SHA256 with specific input modifications
-            for _ in 0..64 {
-                let mut hasher = Sha256::new();
-                hasher.update(&current);
-                hasher.update(&input);
-                current = hasher.finalize().to_vec();
-                // XOR trick from the spec
-                let sum: u8 = current.iter().map(|b| b.count_ones() as u8).sum();
-                if sum.is_multiple_of(8) {
-                    // Use the last byte as a seed for the next round
-                    break;
-                }
-            }
-            current
-        }
-    }
-
     /// Verify the user password against the U entry.
     fn verify_user_password(&self, password: &[u8]) -> bool {
         if self.enc.version >= 5 {
@@ -194,16 +144,21 @@ impl PdfVerifier {
 
     /// Verify user password for AES-256 (R=5/R=6).
     fn verify_user_password_aes256(&self, password: &[u8]) -> bool {
-        use sha2::{Digest, Sha256};
-
         let salt = self.enc.u_validation_salt.as_deref().unwrap_or(&[]);
-        let mut hasher = Sha256::new();
-        hasher.update(password);
-        hasher.update(salt);
-        let hash = hasher.finalize();
+        let computed = if self.enc.revision >= 6 {
+            // R6: ISO 32000-2 Algorithm 2.B hardened hash.
+            algorithm_2b(password, salt, &[])
+        } else {
+            // R5: single SHA-256(password || salt).
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(password);
+            hasher.update(salt);
+            hasher.finalize().to_vec()
+        };
 
-        // Compare first 32 bytes of U with the computed hash
-        hash.as_slice() == &self.enc.user_hash[..32.min(self.enc.user_hash.len())]
+        let stored = &self.enc.user_hash[..32.min(self.enc.user_hash.len())];
+        computed.as_slice() == stored
     }
 }
 
@@ -261,15 +216,12 @@ fn parse_encryption(data: &[u8]) -> Result<PdfEncryption> {
     let owner_hash = parse_hex_string(&enc_dict_str, b"/O").context("Missing /O")?;
     let user_hash = parse_hex_string(&enc_dict_str, b"/U").context("Missing /U")?;
 
-    // For V>=5, extract validation salts from U and O
+    // For V>=5, the validation salt lives in U[32..40].
     // U = [32 bytes hash][8 bytes validation salt][8 bytes key salt]
-    // O = [32 bytes hash][8 bytes validation salt][8 bytes key salt]
-    let (u_validation_salt, o_validation_salt) = if version >= 5 {
-        let u_vs = user_hash.get(32..40).map(|s| s.to_vec());
-        let o_vs = owner_hash.get(32..40).map(|s| s.to_vec());
-        (u_vs, o_vs)
+    let u_validation_salt = if version >= 5 {
+        user_hash.get(32..40).map(|s| s.to_vec())
     } else {
-        (None, None)
+        None
     };
 
     Ok(PdfEncryption {
@@ -282,7 +234,6 @@ fn parse_encryption(data: &[u8]) -> Result<PdfEncryption> {
         id0: id_array,
         encrypt_metadata: true, // default
         u_validation_salt,
-        o_validation_salt,
     })
 }
 
@@ -407,6 +358,76 @@ fn rc4_encrypt(key: &[u8], data: &[u8]) -> Vec<u8> {
         .collect()
 }
 
+/// AES-128-CBC encryption without padding. `data.len()` must be a multiple of 16.
+/// Used by PDF R6 Algorithm 2.B.
+fn aes128_cbc_encrypt_no_pad(key: &[u8], iv: &[u8], data: &[u8]) -> Vec<u8> {
+    use cipher::{BlockCipherEncrypt, KeyInit};
+
+    let cipher = match aes::Aes128::new_from_slice(&key[..16]) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    let mut prev = [0u8; 16];
+    prev.copy_from_slice(&iv[..16]);
+    let mut out = Vec::with_capacity(data.len());
+    for chunk in data.chunks(16) {
+        let mut block = cipher::Block::<aes::Aes128>::default();
+        for i in 0..16 {
+            block[i] = chunk[i] ^ prev[i];
+        }
+        cipher.encrypt_block(&mut block);
+        out.extend_from_slice(&block[..]);
+        prev.copy_from_slice(&block[..]);
+    }
+    out
+}
+
+/// ISO 32000-2 Algorithm 2.B: PDF 2.0 (R6) hardened password hash.
+///
+/// Returns the 32-byte derived hash, which is compared against `U[0..32]`.
+/// Verified end-to-end against `examples/test_r6.pdf`.
+fn algorithm_2b(password: &[u8], salt: &[u8], udata: &[u8]) -> Vec<u8> {
+    use sha2::{Digest, Sha256, Sha384, Sha512};
+
+    // K = SHA-256(password || salt || udata)
+    let mut h = Sha256::new();
+    h.update(password);
+    h.update(salt);
+    h.update(udata);
+    let mut k: Vec<u8> = h.finalize().to_vec();
+
+    let mut round: usize = 0;
+    loop {
+        // K1 = (password || K || udata) repeated 64 times.
+        let mut k1 = Vec::with_capacity((password.len() + k.len() + udata.len()) * 64);
+        for _ in 0..64 {
+            k1.extend_from_slice(password);
+            k1.extend_from_slice(&k);
+            k1.extend_from_slice(udata);
+        }
+
+        // E = AES-128-CBC-Encrypt(key = K[0..16], iv = K[16..32], K1), no padding.
+        let e = aes128_cbc_encrypt_no_pad(&k[0..16], &k[16..32], &k1);
+
+        // The next hash algorithm is selected by the first 16 bytes of E.
+        let sum: u32 = e[0..16].iter().map(|&b| b as u32).sum();
+        k = match sum % 3 {
+            0 => Sha256::digest(&e).to_vec(),
+            1 => Sha384::digest(&e).to_vec(),
+            _ => Sha512::digest(&e).to_vec(),
+        };
+
+        round += 1;
+        // Stop after at least 64 rounds, when the last byte of E is <= round - 32.
+        if round >= 64 && (e[e.len() - 1] as usize) <= round - 32 {
+            break;
+        }
+    }
+
+    k.truncate(32);
+    k
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -422,5 +443,19 @@ mod tests {
     fn hex_decode_basic() {
         assert_eq!(hex_decode("48656c6c6f").unwrap(), b"Hello");
         assert_eq!(hex_decode("48 65 6c 6c 6f").unwrap(), b"Hello");
+    }
+
+    #[test]
+    fn algorithm_2b_known_answer() {
+        // Real values from examples/test_r6.pdf (password "92eo"),
+        // cross-verified with pycryptodome.
+        let salt = [0xe5, 0xba, 0xd2, 0x1d, 0x84, 0x2e, 0x3e, 0x2f];
+        let expected = [
+            0xd9, 0xa0, 0x86, 0xd2, 0x1d, 0x02, 0x49, 0x94, 0xfb, 0x4b, 0x8d, 0xcd, 0xb1, 0xbe,
+            0x81, 0x04, 0x04, 0xfe, 0xc4, 0x91, 0x6b, 0x89, 0x36, 0xda, 0xcc, 0xa7, 0x77, 0xf0,
+            0x24, 0x10, 0xa1, 0x02,
+        ];
+        let got = algorithm_2b(b"92eo", &salt, &[]);
+        assert_eq!(got, expected);
     }
 }

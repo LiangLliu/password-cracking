@@ -21,8 +21,6 @@ struct AgileEncryption {
     spin_count: u32,
     key_bits: u32,
     hash_size: usize,
-    #[allow(dead_code)]
-    block_size: usize,
     hash_algorithm: HashAlgorithm,
     salt: Vec<u8>,
     encrypted_verifier_hash_input: Vec<u8>,
@@ -209,6 +207,9 @@ fn parse_agile_xml(xml: &str) -> Result<AgileEncryption> {
     let block_size: usize = extract_attr(xml, "blockSize")?
         .parse()
         .context("Invalid blockSize")?;
+    if block_size != 16 {
+        anyhow::bail!("Unsupported AES block size: {block_size} (expected 16)");
+    }
     let hash_name = extract_attr(xml, "hashAlgorithm")?;
     let hash_algorithm = HashAlgorithm::from_name(&hash_name)
         .context(format!("Unsupported hash algorithm: {hash_name}"))?;
@@ -228,7 +229,6 @@ fn parse_agile_xml(xml: &str) -> Result<AgileEncryption> {
         spin_count,
         key_bits,
         hash_size,
-        block_size,
         hash_algorithm,
         salt,
         encrypted_verifier_hash_input,
