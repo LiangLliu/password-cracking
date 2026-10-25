@@ -1,7 +1,12 @@
 # Linux/Unix Release Plan
 
 Status: **build matrix, packages, completions, man page and installer are
-implemented**; remaining items are listed at the end.
+implemented and verified**.
+
+> Verified 2026-10-25 via `workflow_dispatch` (run 40210210226): all 10 build
+> jobs passed, including `linux-arm64-musl` and `linux-armv7`, and produced
+> `.tar.gz` + `.deb` + `.rpm` + `.apk` artifacts with checksums. The release
+> job is tag-gated and was skipped as expected.
 
 ## 1. Current pipeline (implemented)
 
