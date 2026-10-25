@@ -31,6 +31,8 @@ struct PdfEncryption {
     encrypt_metadata: bool,
     /// AES-256 validation salt for U (only V>=5)
     u_validation_salt: Option<Vec<u8>>,
+    /// AES-256 validation salt for O (only V>=5)
+    o_validation_salt: Option<Vec<u8>>,
 }
 
 impl PdfVerifier {
@@ -47,9 +49,7 @@ impl PdfVerifier {
 
         // Step 1: pad the password to 32 bytes
         let mut buf = Vec::with_capacity(32 + 32 + 4 + self.enc.id0.len() + 4);
-        let pwd_len = password.len().min(32);
-        buf.extend_from_slice(&password[..pwd_len]);
-        buf.extend_from_slice(&PADDING[..32 - pwd_len]);
+        buf.extend_from_slice(&pad_password(password));
 
         // Step 2: append O entry
         buf.extend_from_slice(&self.enc.owner_hash);
@@ -71,8 +71,8 @@ impl PdfVerifier {
         let mut hash = hasher.finalize().to_vec();
 
         // Step 7: for R>=3, do 50 additional rounds of MD5
+        let key_len = key_length(self.enc.length);
         if self.enc.revision >= 3 {
-            let key_len = (self.enc.length / 8) as usize;
             for _ in 0..50 {
                 let mut hasher = Md5::new();
                 hasher.update(&hash[..key_len.min(hash.len())]);
@@ -81,13 +81,16 @@ impl PdfVerifier {
         }
 
         // Return the first n bytes (key length)
-        let key_len = if self.enc.length > 0 {
-            (self.enc.length / 8) as usize
-        } else {
-            5 // 40-bit default
-        };
         hash.truncate(key_len);
         hash
+    }
+
+    /// Verify a password, accepting either the user or the owner password.
+    fn verify_password(&self, password: &[u8]) -> bool {
+        if self.verify_user_password(password) {
+            return true;
+        }
+        self.verify_owner_password(password)
     }
 
     /// Verify the user password against the U entry.
@@ -97,6 +100,67 @@ impl PdfVerifier {
         } else {
             self.verify_user_password_rc4(password)
         }
+    }
+
+    /// Verify the owner password against the O entry.
+    ///
+    /// For R<=4 the owner key decrypts O to recover the padded user password,
+    /// which is then verified normally. For R>=5 the owner hash is computed
+    /// directly from the password, the O validation salt, and the full U entry.
+    fn verify_owner_password(&self, password: &[u8]) -> bool {
+        if self.enc.version >= 5 {
+            self.verify_owner_password_aes256(password)
+        } else {
+            let recovered = self.recover_user_password(password);
+            self.verify_user_password_rc4(&recovered)
+        }
+    }
+
+    /// Algorithm 3: recover the padded user password from the O entry.
+    fn recover_user_password(&self, owner_password: &[u8]) -> Vec<u8> {
+        use md5::Md5;
+        use sha1::Digest;
+
+        // Steps (a)-(d): derive the owner key.
+        let mut hash = Md5::digest(pad_password(owner_password)).to_vec();
+        if self.enc.revision >= 3 {
+            for _ in 0..50 {
+                hash = Md5::digest(&hash).to_vec();
+            }
+        }
+        let key_len = key_length(self.enc.length);
+        let key = &hash[..key_len.min(hash.len())];
+
+        // Steps (e)-(h): decrypt O.
+        let mut out = self.enc.owner_hash.clone();
+        if self.enc.revision == 2 {
+            out = rc4_encrypt(key, &out);
+        } else {
+            for i in (0..=19u8).rev() {
+                let modified: Vec<u8> = key.iter().map(|&b| b ^ i).collect();
+                out = rc4_encrypt(&modified, &out);
+            }
+        }
+        out
+    }
+
+    /// Verify the owner password for AES-256 (R=5/R=6).
+    fn verify_owner_password_aes256(&self, password: &[u8]) -> bool {
+        let salt = self.enc.o_validation_salt.as_deref().unwrap_or(&[]);
+        // For owner authentication the full 48-byte U entry is the extra data.
+        let udata = &self.enc.user_hash;
+        let computed = if self.enc.revision >= 6 {
+            algorithm_2b(password, salt, udata)
+        } else {
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(password);
+            hasher.update(salt);
+            hasher.update(udata);
+            hasher.finalize().to_vec()
+        };
+        let stored = &self.enc.owner_hash[..32.min(self.enc.owner_hash.len())];
+        computed.as_slice() == stored
     }
 
     /// Verify user password for RC4/AES-128 (R=2,3,4).
@@ -153,15 +217,12 @@ impl PdfVerifier {
 
 impl PasswordVerifier for PdfVerifier {
     fn quick_check(&self, password: &[u8]) -> bool {
-        // For PDF, the password verification IS the quick check.
-        // The full verify confirms by attempting to decrypt content.
-        self.verify_user_password(password)
+        // For PDF, password verification IS the check.
+        self.verify_password(password)
     }
 
     fn verify(&self, password: &[u8]) -> bool {
-        // The user password verification is sufficient to confirm the password.
-        // Decrypting actual content would be slower and unnecessary.
-        self.verify_user_password(password)
+        self.verify_password(password)
     }
 
     fn format_name(&self) -> &'static str {
@@ -207,12 +268,15 @@ fn parse_encryption(data: &[u8]) -> Result<PdfEncryption> {
     let owner_hash = parse_hex_string(&enc_dict_str, b"/O").context("Missing /O")?;
     let user_hash = parse_hex_string(&enc_dict_str, b"/U").context("Missing /U")?;
 
-    // For V>=5, the validation salt lives in U[32..40].
-    // U = [32 bytes hash][8 bytes validation salt][8 bytes key salt]
-    let u_validation_salt = if version >= 5 {
-        user_hash.get(32..40).map(|s| s.to_vec())
+    // For V>=5, the validation salts live at bytes 32..40 of U and O.
+    // U/O = [32 bytes hash][8 bytes validation salt][8 bytes key salt]
+    let (u_validation_salt, o_validation_salt) = if version >= 5 {
+        (
+            user_hash.get(32..40).map(|s| s.to_vec()),
+            owner_hash.get(32..40).map(|s| s.to_vec()),
+        )
     } else {
-        None
+        (None, None)
     };
 
     Ok(PdfEncryption {
@@ -225,6 +289,7 @@ fn parse_encryption(data: &[u8]) -> Result<PdfEncryption> {
         id0: id_array,
         encrypt_metadata: true, // default
         u_validation_salt,
+        o_validation_salt,
     })
 }
 
@@ -481,6 +546,20 @@ fn rc4_encrypt(key: &[u8], data: &[u8]) -> Vec<u8> {
             byte ^ k
         })
         .collect()
+}
+
+/// Pad or truncate a password to the 32-byte PDF padding block.
+fn pad_password(password: &[u8]) -> Vec<u8> {
+    let n = password.len().min(32);
+    let mut out = Vec::with_capacity(32);
+    out.extend_from_slice(&password[..n]);
+    out.extend_from_slice(&PADDING[..32 - n]);
+    out
+}
+
+/// Encryption key length in bytes for the given `/Length` (bits).
+fn key_length(bits: u32) -> usize {
+    if bits > 0 { (bits / 8) as usize } else { 5 }
 }
 
 /// AES-128-CBC encryption without padding. `data.len()` must be a multiple of 16.

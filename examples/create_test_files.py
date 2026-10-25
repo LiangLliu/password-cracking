@@ -107,6 +107,26 @@ def create_test_pdf_aes128():
             )
         os.remove(xref_base)
         print(f"✓ Created xref-stream PDF: {xref_path}")
+
+        # Owner-password fixtures: the user password is unknown, but the
+        # owner password is PASSWORD. Exercises PDF owner authentication.
+        for rev, name in ((4, "test_owner_r4.pdf"), (6, "test_owner_r6.pdf")):
+            owner_base = "temp_owner_base.pdf"
+            pdf3 = pikepdf.Pdf.new()
+            page3 = pikepdf.Page(
+                pikepdf.Dictionary(Type=pikepdf.Name.Page, MediaBox=[0, 0, 200, 200])
+            )
+            pdf3.pages.append(page3)
+            pdf3.save(owner_base)
+            with pikepdf.open(owner_base) as p:
+                p.save(
+                    name,
+                    encryption=pikepdf.Encryption(
+                        user="user-not-in-list", owner=PASSWORD, R=rev
+                    ),
+                )
+            os.remove(owner_base)
+            print(f"✓ Created owner-password PDF: {name}")
         return output_path
     except ImportError as e:
         print(f"❌ Missing dependency for AES-128 PDF: {e}")

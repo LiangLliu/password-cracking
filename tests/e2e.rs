@@ -174,3 +174,23 @@ fn dictionary_cracks_zip_mixed_entries() {
     };
     assert_eq!(crack(&example("test_mixed.zip"), mode).as_deref(), Some(KNOWN_PASSWORD));
 }
+
+#[test]
+fn dictionary_cracks_pdf_owner_password_r4() {
+    // The user password is not in the wordlist; "92eo" is the owner password.
+    let wl = wordlist_with_password();
+    let mode = GeneratorMode::Dictionary {
+        path: wl.path().to_path_buf(),
+    };
+    assert_eq!(crack(&example("test_owner_r4.pdf"), mode).as_deref(), Some(KNOWN_PASSWORD));
+}
+
+#[test]
+fn dictionary_cracks_pdf_owner_password_r6() {
+    // Owner password recovery for AES-256 R6 (Algorithm 2.B with U as udata).
+    let wl = wordlist_with_password();
+    let mode = GeneratorMode::Dictionary {
+        path: wl.path().to_path_buf(),
+    };
+    assert_eq!(crack(&example("test_owner_r6.pdf"), mode).as_deref(), Some(KNOWN_PASSWORD));
+}

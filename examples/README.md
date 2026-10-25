@@ -11,6 +11,8 @@ This directory contains test files for the password cracking tool. All test file
 | `test_aes128.pdf` | PDF | AES-128 (R4) |
 | `test_r6.pdf` | PDF | AES-256 (R6, Algorithm 2.B) |
 | `test_xref.pdf` | PDF | AES-256 (R6, xref stream, no classic trailer) |
+| `test_owner_r4.pdf` | PDF | AES-128 (R4), owner password only |
+| `test_owner_r6.pdf` | PDF | AES-256 (R6), owner password only |
 | `test.docx` | Word | Agile AES-256 |
 | `test.xlsx` | Excel | Agile AES-256 |
 | `test.pptx` | PowerPoint | Agile AES-256 |
@@ -27,6 +29,9 @@ cd .. && cargo build --release && cd examples
 ../target/release/password-cracking -f test_aes128.pdf dictionary -w ../wordlists/common-passwords.txt
 ../target/release/password-cracking -f test_r6.pdf dictionary -w ../wordlists/common-passwords.txt
 ../target/release/password-cracking -f test_xref.pdf dictionary -w ../wordlists/common-passwords.txt
+# Owner-password-only files (user password is unknown):
+../target/release/password-cracking -f test_owner_r4.pdf dictionary -w ../wordlists/common-passwords.txt
+../target/release/password-cracking -f test_owner_r6.pdf dictionary -w ../wordlists/common-passwords.txt
 ../target/release/password-cracking -f test.docx dictionary -w ../wordlists/common-passwords.txt
 ../target/release/password-cracking -f test.xlsx dictionary -w ../wordlists/common-passwords.txt
 ../target/release/password-cracking -f test.pptx dictionary -w ../wordlists/common-passwords.txt
