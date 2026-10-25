@@ -195,9 +195,14 @@ fn parse_encryption_info(path: &Path) -> Result<AgileEncryption> {
 
 /// Parse Agile Encryption parameters from the p:encryptedKey XML element.
 fn parse_agile_xml(xml: &str) -> Result<AgileEncryption> {
-    let spin_count = extract_attr(xml, "spinCount")?
+    let spin_count: u32 = extract_attr(xml, "spinCount")?
         .parse()
         .context("Invalid spinCount")?;
+    // A malicious or corrupt file could request billions of hash iterations,
+    // hanging the cracker. Real Office files use 100,000.
+    if spin_count > 5_000_000 {
+        anyhow::bail!("Unreasonable spinCount {spin_count} (limit: 5,000,000)");
+    }
     let key_bits = extract_attr(xml, "keyBits")?
         .parse()
         .context("Invalid keyBits")?;
