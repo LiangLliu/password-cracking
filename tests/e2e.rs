@@ -141,3 +141,15 @@ fn dictionary_cracks_pdf_aes128() {
     };
     assert_eq!(crack(&example("test_aes128.pdf"), mode).as_deref(), Some(KNOWN_PASSWORD));
 }
+
+#[test]
+fn dictionary_cracks_pdf_xref_stream() {
+    // test_xref.pdf has no classic `trailer`: its trailer entries live in a
+    // cross-reference stream dictionary (PDF 1.5+). Regression test for the
+    // xref-stream fallback parser.
+    let wl = wordlist_with_password();
+    let mode = GeneratorMode::Dictionary {
+        path: wl.path().to_path_buf(),
+    };
+    assert_eq!(crack(&example("test_xref.pdf"), mode).as_deref(), Some(KNOWN_PASSWORD));
+}

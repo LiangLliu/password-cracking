@@ -189,7 +189,9 @@ fn parse_encryption(data: &[u8]) -> Result<PdfEncryption> {
     }
 
     // Find the trailer to get the /Encrypt object reference and /ID array.
-    let trailer = find_trailer(data)?;
+    // PDF 1.5+ files may use a cross-reference stream instead of a classic
+    // `trailer` keyword; fall back to the last dictionary containing /Encrypt.
+    let trailer = find_trailer(data).or_else(|_| find_trailing_dict(data))?;
     let encrypt_ref =
         parse_dict_value(&trailer, b"/Encrypt").context("Missing /Encrypt in trailer")?;
     let id_array = parse_id_array(&trailer)?;
@@ -224,6 +226,64 @@ fn parse_encryption(data: &[u8]) -> Result<PdfEncryption> {
         encrypt_metadata: true, // default
         u_validation_salt,
     })
+}
+
+/// Find the last dictionary containing `/Encrypt`.
+///
+/// PDF 1.5+ may store the trailer entries in an xref stream dictionary
+/// (`/Type /XRef`) instead of a classic `trailer` keyword. This locates the
+/// innermost dictionary enclosing the last `/Encrypt` token.
+fn find_trailing_dict(data: &[u8]) -> Result<String> {
+    let pos = rfind_bytes(data, b"/Encrypt").context("No /Encrypt found")?;
+
+    // Walk backwards to find the enclosing "<<" (skipping nested dicts).
+    let mut depth = 0i32;
+    let mut start = None;
+    let mut i = pos;
+    while i >= 2 {
+        let pair = &data[i - 2..i];
+        if pair == b">>" {
+            depth += 1;
+        } else if pair == b"<<" {
+            if depth == 0 {
+                start = Some(i - 2);
+                break;
+            }
+            depth -= 1;
+        }
+        i -= 1;
+    }
+    let start = start.context("No enclosing dictionary for /Encrypt")?;
+
+    // Scan forward to the matching ">>".
+    let mut depth = 0i32;
+    let mut j = start;
+    while j + 1 < data.len() {
+        let pair = &data[j..j + 2];
+        if pair == b"<<" {
+            depth += 1;
+            j += 2;
+        } else if pair == b">>" {
+            depth -= 1;
+            j += 2;
+            if depth == 0 {
+                return Ok(String::from_utf8_lossy(&data[start..j]).into_owned());
+            }
+        } else {
+            j += 1;
+        }
+    }
+    bail!("Unterminated dictionary containing /Encrypt")
+}
+
+/// Find the last occurrence of `needle` in `haystack`.
+fn rfind_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    (0..=haystack.len() - needle.len())
+        .rev()
+        .find(|&i| &haystack[i..i + needle.len()] == needle)
 }
 
 /// Find the trailer dictionary in a PDF.
@@ -381,18 +441,12 @@ fn parse_i32(dict: &str, key: &[u8]) -> Option<i32> {
     val.parse().ok()
 }
 
-/// Parse a hex string value <...> for a key from a dictionary string.
+/// Parse a `<hex>` string value for a top-level key in a dictionary string.
 fn parse_hex_string(dict: &str, key: &[u8]) -> Option<Vec<u8>> {
-    let key_str = std::str::from_utf8(key).ok()?;
-    let idx = dict.find(key_str)?;
-    let after = &dict[idx + key_str.len()..];
-    let after = after.trim_start();
-    if let Some(rest) = after.strip_prefix('<') {
-        let end = rest.find('>')?;
-        hex_decode(rest[..end].trim()).ok()
-    } else {
-        None
-    }
+    let value = parse_dict_value(dict, key)?;
+    let rest = value.strip_prefix('<')?;
+    let end = rest.find('>')?;
+    hex_decode(rest[..end].trim()).ok()
 }
 
 /// Decode a hex string to bytes.

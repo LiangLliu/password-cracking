@@ -89,6 +89,24 @@ def create_test_pdf_aes128():
             )
         os.remove(base)
         print(f"✓ Created AES-128 PDF: {output_path}")
+
+        # Also create a PDF whose trailer is an xref stream (no `trailer`).
+        xref_base = "temp_xref_base.pdf"
+        pdf2 = pikepdf.Pdf.new()
+        page2 = pikepdf.Page(
+            pikepdf.Dictionary(Type=pikepdf.Name.Page, MediaBox=[0, 0, 200, 200])
+        )
+        pdf2.pages.append(page2)
+        pdf2.save(xref_base)
+        xref_path = "test_xref.pdf"
+        with pikepdf.open(xref_base) as p:
+            p.save(
+                xref_path,
+                encryption=pikepdf.Encryption(user=PASSWORD, owner="owner-unused", R=6),
+                object_stream_mode=pikepdf.ObjectStreamMode.generate,
+            )
+        os.remove(xref_base)
+        print(f"✓ Created xref-stream PDF: {xref_path}")
         return output_path
     except ImportError as e:
         print(f"❌ Missing dependency for AES-128 PDF: {e}")
