@@ -93,6 +93,15 @@ cargo test
 ./scripts/release.sh patch
 ```
 
+## 限制
+
+- **Office**：仅支持 Agile 加密（v4，Office 2010+）。旧版
+  CryptoAPI/ECMA-376 标准加密（老 `.doc`/`.xls`/`.ppt`）暂不支持，会给出明确错误。
+- **RAR5 / 7z**：暂未支持（已列入路线图）。
+- **PDF**：支持 RC4/AES 的 user 与 owner 密码；空密码与证书加密不在范围内。
+- **ZIP**：支持 AES 与 ZipCrypto；不支持分卷/多卷压缩包。
+- **断点续跑**：字典攻击恢复时假设词表内容未变。
+
 ## 许可证
 
 MIT — 详见 [LICENSE](LICENSE)

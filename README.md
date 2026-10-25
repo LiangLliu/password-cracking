@@ -81,6 +81,19 @@ src/
 - **[Development Guide](docs/DEVELOPMENT.md)** — Coding standards and workflow
 - **[Linux/Unix Release Plan](docs/RELEASE_LINUX.md)** — Packaging and distribution
 
+## Limitations
+
+- **Office**: only Agile Encryption (v4, Office 2010+). Legacy
+  CryptoAPI/ECMA-376 standard encryption (old `.doc`/`.xls`/`.ppt`) is not yet
+  supported and fails with a clear error.
+- **RAR5 / 7z**: not yet supported (planned; see `docs/RELEASE_LINUX.md` and
+  the capability roadmap).
+- **PDF**: user and owner passwords are supported for RC4/AES; empty-password
+  and certificate-based encryption are out of scope.
+- **ZIP**: AES and ZipCrypto; split/multi-volume archives are not supported.
+- **Checkpoints** for dictionary attacks assume the wordlist is unchanged
+  between runs.
+
 ## License
 
 MIT — see [LICENSE](LICENSE)

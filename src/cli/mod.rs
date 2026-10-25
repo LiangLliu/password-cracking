@@ -232,6 +232,15 @@ pub fn run() -> Result<()> {
             let mut lines = content.lines();
             let name = lines.next().unwrap_or_default();
             let state = lines.next().unwrap_or_default();
+            let saved_target = lines.next().unwrap_or_default();
+            if !saved_target.is_empty() {
+                let current = ckpt_target(file);
+                if saved_target != current {
+                    anyhow::bail!(
+                        "Checkpoint belongs to target '{saved_target}', but this run targets '{current}'"
+                    );
+                }
+            }
             if name != source.name() {
                 anyhow::bail!(
                     "Checkpoint belongs to attack '{name}', but this run is '{}'",
@@ -300,4 +309,12 @@ pub fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Canonicalized target path for checkpoint comparison.
+fn ckpt_target(path: &std::path::Path) -> String {
+    path.canonicalize()
+        .unwrap_or_else(|_| path.to_path_buf())
+        .display()
+        .to_string()
 }

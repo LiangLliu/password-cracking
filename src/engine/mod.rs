@@ -28,6 +28,7 @@ pub struct CrackerEngine {
     source: Box<dyn PasswordSource>,
     thread_count: usize,
     checkpoint: Option<CheckpointConfig>,
+    target: std::path::PathBuf,
 }
 
 /// Periodic progress persistence, enabling `--resume`.
@@ -60,6 +61,7 @@ impl CrackerEngine {
             source,
             thread_count,
             checkpoint: None,
+            target: file_path.to_path_buf(),
         })
     }
 
@@ -118,7 +120,7 @@ impl CrackerEngine {
 
         // Adaptive batch size: start small so slow verifiers (Office) produce
         // checkpoints and progress updates quickly, then grow for fast ones.
-        let batch_size = Arc::new(std::sync::atomic::AtomicUsize::new(128));
+        let batch_size = Arc::new(std::sync::atomic::AtomicUsize::new(32));
 
         // Generator thread
         let src_found = Arc::clone(&found);
@@ -173,6 +175,10 @@ impl CrackerEngine {
         let checkpoint = self.checkpoint.clone();
         let prog_tracker = tracker.clone();
         let source_name = source_name_owned;
+        let target = self
+            .target
+            .canonicalize()
+            .unwrap_or_else(|_| self.target.clone());
         let prog_handle = std::thread::spawn(move || {
             let mut last_checkpoint = Instant::now();
             while !prog_found.load(Ordering::Relaxed) {
@@ -183,7 +189,7 @@ impl CrackerEngine {
                 {
                     let pos = t.lock().unwrap().safe_position();
                     if let Some(pos) = pos {
-                        write_checkpoint(cfg, &source_name, &pos);
+                        write_checkpoint(cfg, &source_name, &pos, &target);
                     }
                     last_checkpoint = Instant::now();
                 }
@@ -251,7 +257,7 @@ impl CrackerEngine {
                             } else if elapsed > Duration::from_secs(1) {
                                 let _ = batch_size.compare_exchange(
                                     current,
-                                    (current / 2).max(16),
+                                    (current / 2).max(8),
                                     Ordering::Relaxed,
                                     Ordering::Relaxed,
                                 );
@@ -296,10 +302,15 @@ impl CrackerEngine {
     }
 }
 
-/// Atomically persist `"{source name}\n{state}\n"` to the checkpoint path.
-fn write_checkpoint(cfg: &CheckpointConfig, source_name: &str, state: &str) {
+/// Atomically persist `"{source name}\n{state}\n{target path}\n"`.
+fn write_checkpoint(
+    cfg: &CheckpointConfig,
+    source_name: &str,
+    state: &str,
+    target: &std::path::Path,
+) {
     let tmp = cfg.path.with_extension("tmp");
-    let content = format!("{source_name}\n{state}\n");
+    let content = format!("{source_name}\n{state}\n{}\n", target.display());
     if std::fs::write(&tmp, content).is_ok() {
         let _ = std::fs::rename(&tmp, &cfg.path);
     }
