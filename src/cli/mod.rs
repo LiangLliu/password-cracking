@@ -70,6 +70,12 @@ pub enum AttackMode {
         #[arg(long, default_value = "6")]
         max_length: usize,
     },
+    /// Mask attack: per-position character sets (e.g. ?u?l?l?l?d?d)
+    Mask {
+        /// Mask pattern (?d digits, ?l lower, ?u upper, ?s special, ?a all, ?? literal ?)
+        #[arg(short, long)]
+        mask: String,
+    },
     /// Hybrid attack: dictionary words + mutation rules
     Hybrid {
         /// Path to wordlist
@@ -121,6 +127,7 @@ impl Cli {
                     max_length: *max_length,
                 })
             }
+            AttackMode::Mask { mask } => Ok(GeneratorMode::Mask { mask: mask.clone() }),
             AttackMode::Hybrid {
                 wordlist,
                 capitalize,

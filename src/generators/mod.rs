@@ -2,6 +2,7 @@ use anyhow::Result;
 
 pub mod brute_force;
 pub mod dictionary;
+pub mod mask;
 pub mod rules;
 
 /// Streaming source of password candidates.
@@ -45,6 +46,9 @@ pub enum GeneratorMode {
         dictionary_path: std::path::PathBuf,
         rules: Vec<rules::Rule>,
     },
+    Mask {
+        mask: String,
+    },
 }
 
 /// Creates a password source from the given mode.
@@ -62,5 +66,6 @@ pub fn create_source(mode: GeneratorMode) -> Result<Box<dyn PasswordSource>> {
             dictionary_path,
             rules,
         } => Ok(Box::new(rules::RuleSource::new(&dictionary_path, rules)?)),
+        GeneratorMode::Mask { mask } => Ok(Box::new(mask::MaskSource::new(&mask)?)),
     }
 }

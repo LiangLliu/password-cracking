@@ -229,3 +229,20 @@ fn dictionary_cracks_pdf_owner_password_r6() {
         Some(KNOWN_PASSWORD)
     );
 }
+
+#[test]
+fn mask_cracks_zip() {
+    // "92eo" = ?d ?d ?l ?l
+    let mode = GeneratorMode::Mask {
+        mask: "?d?d?l?l".to_string(),
+    };
+    assert_eq!(crack(&example("test.zip"), mode).as_deref(), Some(KNOWN_PASSWORD));
+}
+
+#[test]
+fn mask_cracks_pdf() {
+    let mode = GeneratorMode::Mask {
+        mask: "?d?d?l?l".to_string(),
+    };
+    assert_eq!(crack(&example("test.pdf"), mode).as_deref(), Some(KNOWN_PASSWORD));
+}
