@@ -60,9 +60,8 @@ impl PasswordSource for BruteForceSource {
         if self.exhausted {
             return false;
         }
-        const BATCH: usize = 1024;
         batch.clear();
-        for _ in 0..BATCH {
+        for _ in 0..super::BATCH_SIZE {
             if self.exhausted {
                 break;
             }

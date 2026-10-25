@@ -127,8 +127,5 @@ fn dictionary_cracks_pdf_r6() {
     let mode = GeneratorMode::Dictionary {
         path: wl.path().to_path_buf(),
     };
-    assert_eq!(
-        crack(&example("test_r6.pdf"), mode).as_deref(),
-        Some(KNOWN_PASSWORD)
-    );
+    assert_eq!(crack(&example("test_r6.pdf"), mode).as_deref(), Some(KNOWN_PASSWORD));
 }

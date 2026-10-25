@@ -1,5 +1,8 @@
 use anyhow::Result;
 
+/// Number of candidates produced per `fill_batch` call.
+pub(crate) const BATCH_SIZE: usize = 1024;
+
 pub mod brute_force;
 pub mod dictionary;
 pub mod rules;
