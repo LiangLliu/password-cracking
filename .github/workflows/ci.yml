@@ -235,25 +235,40 @@ jobs:
           fi
 
       - name: Prepare Linux package contents
-        if: matrix.nfpm_arch != ''
+        if: matrix.nfpm_arch
         shell: bash
         run: |
+          # man page/completions are architecture independent; build them with
+          # a host binary because cross-compiled targets cannot execute here.
+          cargo build --release
+          HOST_BIN="target/release/password-cracking"
           mkdir -p release/pkg/completions
           cp "target/${{ matrix.target }}/release/password-cracking" release/pkg/password-cracking
           chmod +x release/pkg/password-cracking
-          "release/password-cracking-${{ matrix.name }}" man > release/pkg/password-cracking.1
-          "release/password-cracking-${{ matrix.name }}" completions bash > release/pkg/completions/password-cracking.bash
-          "release/password-cracking-${{ matrix.name }}" completions zsh > release/pkg/completions/_password-cracking
-          "release/password-cracking-${{ matrix.name }}" completions fish > release/pkg/completions/password-cracking.fish
+          "$HOST_BIN" man > release/pkg/password-cracking.1
+          "$HOST_BIN" completions bash > release/pkg/completions/password-cracking.bash
+          "$HOST_BIN" completions zsh > release/pkg/completions/_password-cracking
+          "$HOST_BIN" completions fish > release/pkg/completions/password-cracking.fish
+
+      - name: Set up Go (nfpm)
+        if: matrix.nfpm_arch
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
 
       - name: Build Linux packages (deb/rpm/apk)
-        if: matrix.nfpm_arch != ''
+        if: matrix.nfpm_arch
         shell: bash
         run: |
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.43.0
           export PATH="$PATH:$(go env GOPATH)/bin"
-          export VERSION="${{ github.ref_name }}"
+          # Prefer the tag, but fall back to Cargo.toml for branch builds.
+          VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+ ]]; then
+            VERSION="$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)"
+          fi
+          export VERSION
           export ARCH="${{ matrix.nfpm_arch }}"
           for packager in deb rpm apk; do
             nfpm package -f packaging/nfpm.yaml -p "$packager" -t release
