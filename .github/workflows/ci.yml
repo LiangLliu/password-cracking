@@ -111,7 +111,7 @@ jobs:
   build:
     name: Build - ${{ matrix.name }}
     needs: [quality-check, security-audit, test]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -121,15 +121,30 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             name: linux-amd64
+            nfpm_arch: amd64
 
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             name: linux-arm64
+            nfpm_arch: arm64
             use-cross: true
 
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             name: linux-amd64-musl
+            nfpm_arch: amd64
+            use-cross: true
+
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            name: linux-arm64-musl
+            nfpm_arch: arm64
+            use-cross: true
+
+          - os: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            name: linux-armv7
+            nfpm_arch: armv7
             use-cross: true
 
           # macOS
@@ -189,19 +204,13 @@ jobs:
       - name: Package Binary
         shell: bash
         run: |
-          BINARY_NAME="password-cracking"
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            BINARY_NAME="${BINARY_NAME}.exe"
-          fi
-
-          # 创建发布目录
           mkdir -p release
-
-          # 复制二进制文件
-          cp "target/${{ matrix.target }}/release/${BINARY_NAME}" "release/password-cracking-${{ matrix.name }}${BINARY_NAME##*.exe}"
-
-          # 设置执行权限（Unix系统）
-          if [[ "${{ matrix.os }}" != "windows-latest" ]]; then
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            cp "target/${{ matrix.target }}/release/password-cracking.exe" \
+               "release/password-cracking-${{ matrix.name }}.exe"
+          else
+            cp "target/${{ matrix.target }}/release/password-cracking" \
+               "release/password-cracking-${{ matrix.name }}"
             chmod +x "release/password-cracking-${{ matrix.name }}"
           fi
 
@@ -225,6 +234,35 @@ jobs:
             fi
           fi
 
+      - name: Prepare Linux package contents
+        if: matrix.nfpm_arch != ''
+        shell: bash
+        run: |
+          mkdir -p release/pkg/completions
+          cp "target/${{ matrix.target }}/release/password-cracking" release/pkg/password-cracking
+          chmod +x release/pkg/password-cracking
+          "release/password-cracking-${{ matrix.name }}" man > release/pkg/password-cracking.1
+          "release/password-cracking-${{ matrix.name }}" completions bash > release/pkg/completions/password-cracking.bash
+          "release/password-cracking-${{ matrix.name }}" completions zsh > release/pkg/completions/_password-cracking
+          "release/password-cracking-${{ matrix.name }}" completions fish > release/pkg/completions/password-cracking.fish
+
+      - name: Build Linux packages (deb/rpm/apk)
+        if: matrix.nfpm_arch != ''
+        shell: bash
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.43.0
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          export VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          export ARCH="${{ matrix.nfpm_arch }}"
+          for packager in deb rpm apk; do
+            nfpm package -f packaging/nfpm.yaml -p "$packager" -t release
+          done
+          for f in release/*.deb release/*.rpm release/*.apk; do
+            [ -f "$f" ] || continue
+            sha256sum "$f" > "$f.sha256"
+          done
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -232,6 +270,9 @@ jobs:
           path: |
             release/*.tar.gz
             release/*.zip
+            release/*.deb
+            release/*.rpm
+            release/*.apk
             release/*.sha256
           if-no-files-found: error
           retention-days: 7
@@ -254,6 +295,11 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           path: artifacts
+
+      - name: Aggregate checksums
+        run: |
+          find artifacts -name '*.sha256' -type f -exec cat {} + > SHA256SUMS
+          cp scripts/install.sh install.sh
 
       - name: Generate Release Notes
         run: |
@@ -304,5 +350,10 @@ jobs:
           files: |
             artifacts/**/*.tar.gz
             artifacts/**/*.zip
+            artifacts/**/*.deb
+            artifacts/**/*.rpm
+            artifacts/**/*.apk
             artifacts/**/*.sha256
+            SHA256SUMS
+            install.sh
           fail_on_unmatched_files: true

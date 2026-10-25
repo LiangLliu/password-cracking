@@ -19,7 +19,8 @@ password-cracking/
 │   │   └── mod.rs                 # clap v4 argument parsing, run()
 │   │
 │   ├── engine/                    # Cracking engine
-│   │   └── mod.rs                 # CrackerEngine: Rayon pool + crossbeam channels
+│   │   └── mod.rs                 # CrackerEngine: FIFO worker pool, adaptive batches,
+│   │                              # verified-frontier checkpoints
 │   │
 │   ├── formats/                   # File format handlers
 │   │   ├── mod.rs                 # PasswordVerifier trait + auto-detection
@@ -29,12 +30,16 @@ password-cracking/
 │   │
 │   ├── generators/                # Password generators
 │   │   ├── mod.rs                 # PasswordSource trait + factory
-│   │   ├── dictionary.rs          # Dictionary source (streaming, dedup)
+│   │   ├── dictionary.rs          # mmap streaming dictionary (+ optional dedup)
 │   │   ├── brute_force.rs         # Brute-force source (index-based)
+│   │   ├── mask.rs                # Mask source (per-position charsets)
 │   │   └── rules.rs               # Rule-based hybrid source
 │   │
 │   └── utils/                     # Utilities
 │       └── mod.rs                 # Character sets, formatting, validation
+│
+├── packaging/
+│   └── nfpm.yaml                  # .deb/.rpm/.apk packaging config
 │
 ├── examples/                      # Test files and scripts
 │   ├── create_test_files.py       # Generate encrypted test files (password: 92eo)
@@ -53,6 +58,7 @@ password-cracking/
 │
 ├── docs/                          # Documentation
 │   ├── USER_GUIDE.md              # Complete usage guide
+│   ├── RELEASE_LINUX.md           # Linux/Unix release plan
 │   ├── PROJECT_STRUCTURE.md       # This file
 │   ├── PERFORMANCE.md             # Performance benchmarks
 │   ├── ZIP_IMPLEMENTATION.md      # ZIP encryption implementation
@@ -102,13 +108,19 @@ Streaming design: passwords are generated in batches, never holding the entire s
 
 Pipeline:
 ```
-PasswordSource.fill_batch() → crossbeam channel → Rayon worker pool
+PasswordSource.fill_batch(max) → bounded FIFO channel → worker threads
   worker: quick_check() → verify() → AtomicBool found
+  worker: mark batch completed → checkpoint frontier advances
 ```
 
-- Bounded channel (`thread_count * 2`) keeps memory flat
-- Independent progress thread (100ms refresh)
-- Generator runs on its own thread to overlap with verification
+- Persistent FIFO workers (not Rayon) so batches complete roughly in order,
+  which is required for a meaningful checkpoint frontier
+- Adaptive batch size: starts at 128, targets ~250 ms per batch, caps at 4096
+  (slow formats checkpoint promptly, fast formats keep large batches)
+- Bounded channel (`thread_count`) keeps memory flat
+- Checkpoint = start position of the earliest incomplete batch, so resuming
+  never skips unverified candidates
+- Independent progress/checkpoint thread (100ms refresh)
 
 ## Format Auto-Detection (`src/formats/mod.rs`)
 
@@ -126,14 +138,15 @@ All dependencies are at latest stable versions (as of 2026-06):
 
 | Category | Crates |
 |----------|--------|
-| CLI | clap 4.6 |
-| Concurrency | rayon 1.12, crossbeam-channel 0.5, num_cpus 1.17 |
+| CLI | clap 4.6, clap_complete 4.6, clap_mangen 0.3 |
+| Concurrency | crossbeam-channel 0.5, num_cpus 1.17 |
 | Progress | indicatif 0.18 |
 | Errors | anyhow 1.0, thiserror 2.0 |
-| ZIP | zip 8.6 |
+| ZIP | zip 9.1 |
 | Crypto hashes | sha2 0.11, sha1 0.11, md-5 0.11, hmac 0.13, pbkdf2 0.13 |
 | Crypto ciphers | aes 0.9, cbc 0.2, rc4 0.2, cipher 0.5 |
 | CRC | crc32fast 1.5 |
 | OLE2 | cfb 0.14 |
+| Wordlists | memmap2 0.9 |
 | Memory-mapped I/O | memmap2 0.9 |
-| Utils | humansize 2.1, base64 0.22 |
+| Utils | base64 0.22 |

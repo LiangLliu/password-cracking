@@ -1,0 +1,43 @@
+# nfpm configuration for Linux packages (.deb, .rpm, .apk).
+#
+# Build from the repository root after preparing release/pkg/:
+#   VERSION=0.2.0 ARCH=amd64 nfpm package -f packaging/nfpm.yaml -p deb -t release/
+#   VERSION=0.2.0 ARCH=amd64 nfpm package -f packaging/nfpm.yaml -p rpm -t release/
+#   VERSION=0.2.0 ARCH=amd64 nfpm package -f packaging/nfpm.yaml -p apk -t release/
+#
+# release/pkg/ must contain:
+#   password-cracking          (binary)
+#   password-cracking.1        (man page)
+#   completions/password-cracking.bash
+#   completions/_password-cracking
+#   completions/password-cracking.fish
+name: password-cracking
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+section: utils
+priority: optional
+maintainer: LiangLliu <max1141847753@gmail.com>
+description: |
+  High-performance document password cracker.
+  Supports ZIP (ZipCrypto/AES), PDF (RC4/AES) and Office (Agile AES) files
+  with dictionary, brute-force, mask and hybrid attacks.
+vendor: LiangLliu
+homepage: https://github.com/LiangLliu/password-cracking
+license: MIT
+
+contents:
+  - src: ./release/pkg/password-cracking
+    dst: /usr/bin/password-cracking
+    file_info:
+      mode: 0755
+  - src: ./release/pkg/password-cracking.1
+    dst: /usr/share/man/man1/password-cracking.1
+  - src: ./release/pkg/completions/password-cracking.bash
+    dst: /usr/share/bash-completion/completions/password-cracking
+  - src: ./release/pkg/completions/_password-cracking
+    dst: /usr/share/zsh/site-functions/_password-cracking
+  - src: ./release/pkg/completions/password-cracking.fish
+    dst: /usr/share/fish/vendor_completions.d/password-cracking.fish
+  - src: ./LICENSE
+    dst: /usr/share/doc/password-cracking/LICENSE

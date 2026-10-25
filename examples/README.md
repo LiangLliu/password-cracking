@@ -7,6 +7,8 @@ This directory contains test files for the password cracking tool. All test file
 | File | Format | Encryption |
 |------|--------|-----------|
 | `test.zip` | ZIP | ZipCrypto |
+| `test_multi.zip` | ZIP | Two encrypted entries (same password) |
+| `test_mixed.zip` | ZIP | First entry unencrypted, second encrypted |
 | `test.pdf` | PDF | RC4-128 (R3) |
 | `test_aes128.pdf` | PDF | AES-128 (R4) |
 | `test_r6.pdf` | PDF | AES-256 (R6, Algorithm 2.B) |
@@ -25,6 +27,8 @@ cd .. && cargo build --release && cd examples
 
 # Test all formats with dictionary attack
 ../target/release/password-cracking -f test.zip dictionary -w ../wordlists/common-passwords.txt
+../target/release/password-cracking -f test_multi.zip dictionary -w ../wordlists/common-passwords.txt
+../target/release/password-cracking -f test_mixed.zip dictionary -w ../wordlists/common-passwords.txt
 ../target/release/password-cracking -f test.pdf dictionary -w ../wordlists/common-passwords.txt
 ../target/release/password-cracking -f test_aes128.pdf dictionary -w ../wordlists/common-passwords.txt
 ../target/release/password-cracking -f test_r6.pdf dictionary -w ../wordlists/common-passwords.txt

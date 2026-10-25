@@ -14,9 +14,9 @@ use std::path::PathBuf;
                   Automatically detects file format and encryption type."
 )]
 pub struct Cli {
-    /// Target file to crack
+    /// Target file to crack (not needed for completions/man)
     #[arg(short, long)]
-    pub file: PathBuf,
+    pub file: Option<PathBuf>,
 
     /// Number of threads (default: all logical cores)
     #[arg(short, long, global = true)]
@@ -70,6 +70,14 @@ pub enum AttackMode {
         #[arg(long, default_value = "6")]
         max_length: usize,
     },
+    /// Generate shell completions or a man page (Unix integration)
+    Completions {
+        /// Shell: bash, zsh, fish, elvish, powershell
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
+    /// Generate the roff man page
+    Man,
     /// Mask attack: per-position character sets (e.g. ?u?l?l?l?d?d)
     Mask {
         /// Mask pattern (?d digits, ?l lower, ?u upper, ?s special, ?a all, ?? literal ?)
@@ -108,6 +116,9 @@ pub enum AttackMode {
 impl Cli {
     pub fn build_generator_mode(&self) -> Result<GeneratorMode> {
         match &self.mode {
+            AttackMode::Completions { .. } | AttackMode::Man => {
+                anyhow::bail!("Completions/Man do not build a generator")
+            }
             AttackMode::Dictionary { wordlist, dedup } => {
                 utils::validate_wordlist(wordlist)?;
                 Ok(GeneratorMode::Dictionary {
@@ -188,8 +199,27 @@ fn resolve_charset(name: &str) -> String {
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
-    utils::validate_file(&cli.file)
-        .with_context(|| format!("Invalid target file: {}", cli.file.display()))?;
+    // Unix integration commands do not need a target file.
+    match &cli.mode {
+        AttackMode::Completions { shell } => {
+            let mut cmd = <Cli as clap::CommandFactory>::command();
+            clap_complete::generate(*shell, &mut cmd, "password-cracking", &mut std::io::stdout());
+            return Ok(());
+        }
+        AttackMode::Man => {
+            let cmd = <Cli as clap::CommandFactory>::command();
+            clap_mangen::Man::new(cmd).render(&mut std::io::stdout())?;
+            return Ok(());
+        }
+        _ => {}
+    }
+
+    let file = cli
+        .file
+        .as_ref()
+        .context("--file is required for attack modes")?;
+    utils::validate_file(file)
+        .with_context(|| format!("Invalid target file: {}", file.display()))?;
 
     let mode = cli.build_generator_mode()?;
     let mut source = crate::generators::create_source(mode)?;
@@ -222,14 +252,14 @@ pub fn run() -> Result<()> {
     if !cli.quiet {
         println!("Password Cracker");
         println!("================");
-        println!("Target: {}", cli.file.display());
+        println!("Target: {}", file.display());
     }
 
     let options = crate::formats::VerifyOptions {
         try_pdf_owner: cli.pdf_owner,
     };
     let engine =
-        crate::engine::CrackerEngine::new_with_options(&cli.file, source, cli.threads, options)?;
+        crate::engine::CrackerEngine::new_with_options(file, source, cli.threads, options)?;
     let engine = match &cli.checkpoint {
         Some(path) => engine.with_checkpoint(
             path.clone(),

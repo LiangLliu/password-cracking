@@ -10,8 +10,10 @@ Complete usage guide for the Password Cracking Tool.
 4. [Attack Modes](#attack-modes)
    - [Dictionary Attack](#dictionary-attack)
    - [Brute-Force Attack](#brute-force-attack)
+   - [Mask Attack](#mask-attack)
    - [Hybrid Attack](#hybrid-attack)
 5. [Global Options](#global-options)
+   - [Checkpoint and Resume](#checkpoint-and-resume)
 6. [Character Sets](#character-sets)
 7. [Mutation Rules](#mutation-rules)
 8. [Wordlists](#wordlists)
@@ -147,6 +149,37 @@ password-cracking -f document.zip brute-force -c all --min-length 1 --max-length
 | alnum (62) | 15M | 56B | 218T |
 | all (94) | 78M | 690B | 6,096T |
 
+### Mask Attack
+
+A mask gives each position its own character set, so you describe the exact
+password shape instead of one global charset:
+
+```bash
+# 92eo = digit digit lower lower
+password-cracking -f document.zip mask -m "?d?d?l?l"
+
+# Capital + 3 lower + 2 digits (e.g. Password12)
+password-cracking -f document.docx mask -m "?u?l?l?l?l?l?l?l?d?d"
+
+# Literal characters: "admin" followed by 2 digits
+password-cracking -f document.zip mask -m "admin?d?d"
+
+# A literal question mark
+password-cracking -f document.zip mask -m "what??"
+```
+
+Placeholders: `?d` digits, `?l` lowercase, `?u` uppercase, `?s` special,
+`?a` all printable, `??` literal `?`. Any other character is a literal
+(multi-byte UTF-8 is preserved).
+
+| Mask | Keyspace |
+|------|----------|
+| `?d?d?d?d` | 10,000 |
+| `?d?d?d?d?d?d` | 1,000,000 |
+| `?l?l?l?l` | 456,976 |
+| `?u?l?l?l?l?d?d` | 26^5 × 100 ≈ 1.19B |
+| `?a?a?a?a` | 74.8M |
+
 ### Hybrid Attack
 
 Applies mutation rules to dictionary words. For each word, generates the original plus all rule variants.
@@ -174,6 +207,10 @@ See [Mutation Rules](#mutation-rules) for details.
 | `--file <PATH>` | `-f` | Target file to crack (required) |
 | `--threads <N>` | `-t` | Number of worker threads (default: all logical cores) |
 | `--quiet` | `-q` | Only output the password (or "not found" to stderr) |
+| `--checkpoint <PATH>` | | Save progress periodically to PATH |
+| `--resume` | | Resume from `--checkpoint` |
+| `--checkpoint-interval <SECS>` | | Seconds between checkpoint writes (default 5) |
+| `--pdf-owner` | | Also try PDF owner passwords (~3x slower) |
 | `--help` | `-h` | Show help |
 | `--version` | `-V` | Show version |
 
@@ -183,6 +220,37 @@ password-cracking -f document.zip -t 4 dictionary -w passwords.txt
 
 # Quiet mode — prints just the password, nothing else
 password-cracking -q -f document.zip dictionary -w passwords.txt
+```
+
+### Checkpoint and Resume
+
+Long brute-force or mask runs can be interrupted and resumed without
+re-scanning verified candidates:
+
+```bash
+# Start; progress is written every 5 seconds
+password-cracking -f document.pdf brute-force -c alnum --min-length 1 --max-length 8 \
+  --checkpoint progress.ck
+
+# After Ctrl-C / reboot, continue
+password-cracking -f document.pdf brute-force -c alnum --min-length 1 --max-length 8 \
+  --checkpoint progress.ck --resume
+
+# Custom interval
+password-cracking ... --checkpoint progress.ck --checkpoint-interval 10
+```
+
+The checkpoint records the earliest candidate that has not been fully
+verified, so a resume never skips work. A hard kill loses at most the current
+interval plus the in-flight batches (adaptive batches target ~250 ms).
+
+The checkpoint also works for dictionary and mask attacks:
+
+```bash
+password-cracking -f document.zip dictionary -w wordlists/ \
+  --checkpoint dict.ck
+password-cracking -f document.zip mask -m "?d?d?d?d?d?d" \
+  --checkpoint mask.ck
 ```
 
 ---
@@ -196,9 +264,9 @@ Predefined sets for brute-force attacks:
 | `digits` | `0123456789` | 10 |
 | `lower` | `abcdefghijklmnopqrstuvwxyz` | 26 |
 | `upper` | `ABCDEFGHIJKLMNOPQRSTUVWXYZ` | 26 |
-| `special` | `!@#$%^&*()-_=+[]{}\|;:'",.<>/?\`~` | 32 |
+| `special` | `!@#$%^&*()-_=+[]{}\|;:'",.<>/?\`~` | 31 |
 | `alnum` | digits + lower + upper | 62 |
-| `all` | digits + lower + upper + special | 94 |
+| `all` | digits + lower + upper + special | 93 |
 
 You can also pass any custom string as the charset:
 
@@ -292,6 +360,27 @@ In quiet mode, if the password is found it's printed to stdout. If not found, "n
 
 ---
 
+## Shell Completions and Man Page
+
+Unix integration is built in (no separate download):
+
+```bash
+# Bash: add to ~/.bashrc or /usr/share/bash-completion/completions/
+password-cracking completions bash > ~/.local/share/bash-completion/completions/password-cracking
+
+# Zsh
+password-cracking completions zsh > "${fpath[1]}/_password-cracking"
+
+# Fish
+password-cracking completions fish > ~/.config/fish/completions/password-cracking.fish
+
+# Man page
+password-cracking man > /tmp/password-cracking.1
+man /tmp/password-cracking.1
+```
+
+---
+
 ## Real-World Examples
 
 ### Recovering a forgotten ZIP password
@@ -310,6 +399,17 @@ You remember it started with "pass" and had 2 more characters:
 password-cracking -f backup.zip brute-force -c "pass0123456789abcdefghijklmnopqrstuvwxyz" \
   --min-length 6 --max-length 6
 ```
+
+### Cracking a PDF with an owner password
+
+If the PDF opens only with the owner password, enable owner verification:
+
+```bash
+password-cracking -f document.pdf dictionary -w passwords.txt --pdf-owner
+```
+
+Owner support works for RC4-40/128, AES-128 and AES-256 (R5/R6). It is opt-in
+because it roughly triples per-candidate cost.
 
 ### Cracking a PDF with a PIN
 
@@ -330,6 +430,9 @@ Office Agile encryption is slow (~400/sec), so always try dictionary first:
 ```bash
 # Try common passwords
 password-cracking -f report.docx dictionary -w wordlists/common-passwords.txt
+
+# Large wordlist: streaming keeps memory flat (add --dedup to remove duplicates)
+password-cracking -f report.docx dictionary -w /data/rockyou.txt --dedup
 
 # Try with mutations (capitalize, append year digits)
 password-cracking -f report.docx hybrid -w wordlists/common-passwords.txt \

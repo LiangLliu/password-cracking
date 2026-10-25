@@ -53,7 +53,7 @@ impl CrackerEngine {
         options: VerifyOptions,
     ) -> Result<Self> {
         let verifier = crate::formats::create_verifier_with_options(file_path, options)?;
-        let thread_count = thread_count.unwrap_or_else(num_cpus::get);
+        let thread_count = thread_count.unwrap_or_else(num_cpus::get).max(1);
 
         Ok(Self {
             verifier: Arc::from(verifier),

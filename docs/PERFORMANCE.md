@@ -8,21 +8,23 @@ Measured on Apple M2 Pro (10-core CPU), Rust 1.96, release build with `opt-level
 
 | Format | Encryption | Speed (passwords/sec) | Bottleneck |
 |--------|-----------|----------------------|------------|
-| ZIP | ZipCrypto | 5,800,000 – 7,400,000 | CRC32 + stream cipher (12-byte header check) |
-| PDF | RC4-128 | 470,000 – 550,000 | MD5 key derivation + 20-round RC4 |
-| Office | Agile AES-256 | 400 – 450 | 100K SHA-512 iterations per password |
+| ZIP | ZipCrypto | 10,500,000 – 11,400,000 | CRC32 + stream cipher (12-byte header check) |
+| PDF | RC4-128 | 520,000 – 540,000 | MD5 key derivation + 20-round RC4 |
+| PDF (owner) | RC4-128 | ~180,000 | user check + owner recovery per candidate (`--pdf-owner`) |
+| Office | Agile AES-256 | 500 – 800 | 100K SHA-512 iterations per password |
 
 ### By Attack Mode (ZIP ZipCrypto)
 
 | Attack | Keyspace | Time | Speed |
 |--------|---------|------|-------|
 | Dictionary (33 words) | 33 | <0.1s | 314/sec (wordlist loading dominates) |
-| Brute-force digits 1-6 | 1,111,110 | 0.2s | 5.3M/sec |
-| Brute-force alnum 1-4 | 15,018,570 | 2.5s | 5.8M/sec |
+| Brute-force digits 1-6 | 1,111,110 | 0.1s | 10.6M/sec |
+| Brute-force alnum 1-4 | 15,018,570 | 1.4s | 11.3M/sec |
+| Mask `?d?d?l?l` | 67,600 | 0.01s | 10M/sec |
 | Hybrid (33 words + 2 rules) | 99 | <0.1s | 885/sec |
 | Hybrid (33 words + 100 digits) | 3,366 | 0.2s | 22K/sec |
 
-### Keyspace vs Time (ZIP ZipCrypto, 7M/sec)
+### Keyspace vs Time (ZIP ZipCrypto, 11M/sec)
 
 | Charset | Length 4 | Length 6 | Length 8 |
 |---------|---------|---------|---------|
@@ -49,6 +51,18 @@ Measured on Apple M2 Pro (10-core CPU), Rust 1.96, release build with `opt-level
 | alnum (62) | 10.4 hours | 1.8 years | 173 years |
 
 > **Office is ~14,000x slower than ZIP** due to 100,000 SHA-512 iterations per password. Always try dictionary/hybrid first.
+
+## Engine Design
+
+- **FIFO worker pool**: batches are pulled in order, so the checkpoint
+  frontier advances steadily (Rayon's LIFO queue would leave early batches
+  pending until the end).
+- **Adaptive batch size**: each worker measures its batch duration and doubles
+  (or halves) a shared target, aiming for ~250 ms. Slow formats get small
+  batches for timely checkpoints; fast formats get large batches to amortize
+  synchronization.
+- **Streaming sources**: dictionary candidates are read from mmap by byte
+  offset; memory stays flat regardless of wordlist size.
 
 ## Optimization Strategies
 

@@ -8,17 +8,23 @@
 
 ## 特性
 
-- **多格式**：ZIP (ZipCrypto + AES)、PDF (RC4-40/128, AES-128/256)、Office (Agile AES-256)
-- **多线程**：Rayon 工作窃取并行，利用所有 CPU 核心
-- **三种攻击模式**：字典、暴力、混合（字典 + 规则变异）
+- **多格式**：ZIP (ZipCrypto + AES)、PDF (RC4-40/128, AES-128/256，支持 owner 密码)、Office (Agile AES-256)
+- **四种攻击模式**：字典、暴力、Mask（`?d?d?l?l`）、混合（字典 + 规则变异）
+- **高性能**：FIFO worker 线程池 + 自适应批次，ZIP 1100 万+ 密码/秒
 - **自动检测**：通过文件魔数识别格式，不依赖扩展名
 - **两阶段验证**：快速头部检查先排除 ~99% 错误密码，再做完整解密确认
+- **断点续跑**：`--checkpoint`/`--resume`，中断后可继续
+- **流式词表**：mmap 映射，超大词表内存平稳
+- **Unix 友好**：man page、shell 补全、`.deb`/`.rpm`/`.apk`、安装脚本
 - **跨平台**：Linux、macOS、Windows
 
 ## 快速开始
 
 ```bash
-# 编译
+# 安装（Linux/macOS 静态二进制）
+curl -fsSL https://raw.githubusercontent.com/LiangLliu/password-cracking/master/scripts/install.sh | sh
+
+# 或从源码编译
 git clone https://github.com/LiangLliu/password-cracking
 cd password-cracking
 cargo build --release
@@ -29,8 +35,15 @@ cargo build --release
 # 暴力破解（4-6 位数字 PIN）
 ./target/release/password-cracking -f document.pdf brute-force -c digits --min-length 4 --max-length 6
 
+# Mask 攻击（逐位字符集，92eo = 数字数字小写小写）
+./target/release/password-cracking -f document.zip mask -m "?d?d?l?l"
+
 # 混合攻击（字典 + 规则变异）
 ./target/release/password-cracking -f document.docx hybrid -w dict.txt --capitalize --l33t --append-digits 99
+
+# 断点续跑
+./target/release/password-cracking -f document.pdf brute-force -c alnum --min-length 1 --max-length 8 \
+  --checkpoint progress.ck --resume
 
 # 静默模式（脚本中使用，只输出密码）
 ./target/release/password-cracking -q -f document.zip dictionary -w passwords.txt
@@ -40,9 +53,9 @@ cargo build --release
 
 | 格式 | 加密类型 | 速度（密码/秒） |
 |------|---------|---------------|
-| ZIP | ZipCrypto | 7,000,000+ |
-| PDF | RC4-128 | 500,000+ |
-| Office | Agile AES-256 | 400+ |
+| ZIP | ZipCrypto | 11,000,000+ |
+| PDF | RC4-128 | 530,000+ |
+| Office | Agile AES-256 | 500+ |
 
 性能取决于 CPU 核心数、加密类型和密码复杂度。
 
@@ -53,6 +66,7 @@ cargo build --release
 - **[性能指南](docs/PERFORMANCE.md)** — 性能基准和优化建议
 - **[ZIP 实现](docs/ZIP_IMPLEMENTATION.md)** — ZipCrypto 加密实现细节
 - **[开发规范](docs/DEVELOPMENT.md)** — 编码规范和工作流
+- **[Linux/Unix 发布计划](docs/RELEASE_LINUX.md)** — 打包与分发
 
 ## 示例文件
 
