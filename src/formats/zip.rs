@@ -235,22 +235,42 @@ impl PasswordVerifier for ZipVerifier {
     }
 
     fn verify(&self, password: &[u8]) -> bool {
-        let file = match File::open(&self.file_path) {
-            Ok(f) => f,
-            Err(_) => return false,
-        };
-        let mut archive = match ZipArchive::new(file) {
-            Ok(a) => a,
-            Err(_) => return false,
-        };
+        use std::cell::RefCell;
+        use std::collections::HashMap;
 
-        match archive.by_index_decrypt(self.first_encrypted_index, password) {
-            Ok(mut reader) => {
-                let mut buf = Vec::with_capacity(4096);
-                reader.read_to_end(&mut buf).is_ok()
-            }
-            Err(_) => false,
+        // Each worker thread keeps its own open archive per path. This avoids
+        // re-parsing the central directory (and re-opening the file) for every
+        // candidate, which matters for AES where `verify` runs per candidate.
+        thread_local! {
+            static ARCHIVE_CACHE: RefCell<HashMap<std::path::PathBuf, zip::ZipArchive<File>>> =
+                RefCell::new(HashMap::new());
         }
+
+        ARCHIVE_CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            let archive = match cache.get_mut(&self.file_path) {
+                Some(a) => a,
+                None => {
+                    let file = match File::open(&self.file_path) {
+                        Ok(f) => f,
+                        Err(_) => return false,
+                    };
+                    let a = match ZipArchive::new(file) {
+                        Ok(a) => a,
+                        Err(_) => return false,
+                    };
+                    cache.entry(self.file_path.clone()).or_insert(a)
+                }
+            };
+
+            match archive.by_index_decrypt(self.first_encrypted_index, password) {
+                Ok(mut reader) => {
+                    let mut buf = Vec::with_capacity(4096);
+                    reader.read_to_end(&mut buf).is_ok()
+                }
+                Err(_) => false,
+            }
+        })
     }
 
     fn format_name(&self) -> &'static str {

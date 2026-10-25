@@ -1,5 +1,6 @@
 use super::PasswordSource;
 use anyhow::Result;
+use std::collections::VecDeque;
 use std::path::Path;
 
 /// A mutation rule applied to dictionary words (hashcat-style).
@@ -123,7 +124,7 @@ pub struct RuleSource {
     inner: super::dictionary::DictionarySource,
     rules: Vec<Rule>,
     /// Buffer of pending mutations for the current dictionary word.
-    pending: Vec<Box<[u8]>>,
+    pending: VecDeque<Box<[u8]>>,
 }
 
 impl RuleSource {
@@ -132,7 +133,7 @@ impl RuleSource {
         Ok(Self {
             inner,
             rules,
-            pending: Vec::new(),
+            pending: VecDeque::new(),
         })
     }
 
@@ -171,8 +172,11 @@ impl PasswordSource for RuleSource {
         batch.clear();
 
         // First, drain any pending mutations from the previous word.
-        while !self.pending.is_empty() && batch.len() < BATCH {
-            batch.push(self.pending.remove(0));
+        while batch.len() < BATCH {
+            match self.pending.pop_front() {
+                Some(p) => batch.push(p),
+                None => break,
+            }
         }
 
         // Then, keep pulling dictionary words and generating mutations
@@ -189,7 +193,7 @@ impl PasswordSource for RuleSource {
                     if batch.len() < BATCH {
                         batch.push(m);
                     } else {
-                        self.pending.push(m);
+                        self.pending.push_back(m);
                     }
                 }
             }
@@ -252,5 +256,32 @@ mod tests {
     #[test]
     fn append_digits_not_in_apply() {
         assert!(Rule::AppendDigits(4).apply(b"test").is_none());
+    }
+
+    #[test]
+    fn pending_drains_in_order_across_batches() {
+        use std::io::Write;
+        use std::path::PathBuf;
+
+        // A wordlist whose words expand via multiple rules, forcing the
+        // pending buffer to be used across batches.
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        for i in 0..50 {
+            writeln!(f, "word{i}").unwrap();
+        }
+        f.flush().unwrap();
+
+        let rules = vec![Rule::Capitalize, Rule::Upper, Rule::Reverse, Rule::Duplicate];
+        let mut src = RuleSource::new(&PathBuf::from(f.path()), rules).unwrap();
+
+        let mut all: Vec<Box<[u8]>> = Vec::new();
+        let mut batch = Vec::new();
+        while src.fill_batch(&mut batch) {
+            all.append(&mut batch);
+        }
+
+        // The first word's original form must come first.
+        assert_eq!(&*all[0], b"word0");
+        assert!(all.len() >= 50);
     }
 }
