@@ -48,7 +48,7 @@ python3 "$ROOT/scripts/gen-package-manifests.py" \
 test -s "$OUT/password-cracking.rb"
 test -s "$OUT/password-cracking.json"
 test -s "$OUT/PKGBUILD"
-test -s "$OUT/.SRCINFO"
+test -s "$OUT/PKGBUILD.SRCINFO"
 
 ruby -c "$OUT/password-cracking.rb" >/dev/null
 python3 -m json.tool "$OUT/password-cracking.json" >/dev/null
@@ -57,8 +57,8 @@ bash -n "$OUT/PKGBUILD"
 grep -q '9\.9\.9' "$OUT/password-cracking.rb"
 grep -q '9\.9\.9' "$OUT/password-cracking.json"
 grep -q 'pkgver=9\.9\.9' "$OUT/PKGBUILD"
-grep -q 'pkgver = 9\.9\.9' "$OUT/.SRCINFO"
-grep -qP '^\tsha256sums_x86_64 = [0-9a-f]{64}$' "$OUT/.SRCINFO" 2>/dev/null \
-    || grep -q "$(printf '\tsha256sums_x86_64 = ')" "$OUT/.SRCINFO"
+grep -q 'pkgver = 9\.9\.9' "$OUT/PKGBUILD.SRCINFO"
+grep -qP '^\tsha256sums_x86_64 = [0-9a-f]{64}$' "$OUT/PKGBUILD.SRCINFO" 2>/dev/null \
+    || grep -q "$(printf '\tsha256sums_x86_64 = ')" "$OUT/PKGBUILD.SRCINFO"
 
 echo "package manifests OK"

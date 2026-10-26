@@ -282,7 +282,7 @@ jobs:
       - name: Attach PKGBUILD to the release
         run: |
           gh release upload "${{ needs.prepare.outputs.tag }}" \
-            manifests/PKGBUILD manifests/.SRCINFO --clobber
+            manifests/PKGBUILD manifests/PKGBUILD.SRCINFO --clobber
 
       - name: Check AUR deploy key
         id: guard
@@ -310,7 +310,8 @@ jobs:
           ssh-keyscan -t rsa,ed25519 aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
 
           git clone ssh://aur@aur.archlinux.org/password-cracking-bin.git aur
-          cp manifests/PKGBUILD manifests/.SRCINFO aur/
+          cp manifests/PKGBUILD aur/PKGBUILD
+          cp manifests/PKGBUILD.SRCINFO aur/.SRCINFO
           cd aur
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

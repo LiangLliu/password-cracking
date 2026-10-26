@@ -101,13 +101,14 @@ yay -S password-cracking-bin
 paru -S password-cracking-bin
 ```
 
-The release job generates `PKGBUILD` and `.SRCINFO` and attaches them to the
-GitHub Release. If the `AUR_SSH_PRIVATE_KEY` secret is configured, it also
+The release job generates `PKGBUILD` and `PKGBUILD.SRCINFO` and attaches them
+to the GitHub Release (the AUR checkout installs the latter as `.SRCINFO`). If the `AUR_SSH_PRIVATE_KEY` secret is configured, it also
 pushes to `ssh://aur@aur.archlinux.org/password-cracking-bin.git`.
 
 The AUR package must exist before the first automated push. To create it:
 
-1. Download `PKGBUILD` and `.SRCINFO` from the release.
+1. Download `PKGBUILD` and `PKGBUILD.SRCINFO` from the release, renaming the
+   latter to `.SRCINFO`.
 2. Submit `PKGBUILD` at <https://aur.archlinux.org/submit/>.
 3. Add the public half of the CI key to your AUR account
    (**My Account → SSH Public Key**).

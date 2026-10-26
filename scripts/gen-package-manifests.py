@@ -6,7 +6,7 @@ One release produces one set of assets; this script turns them into:
     password-cracking.rb        Homebrew formula (macOS + Linux)
     password-cracking.json      Scoop manifest (Windows)
     PKGBUILD                    AUR package (Arch Linux)
-    .SRCINFO                    AUR metadata (generated like `makepkg --printsrcinfo`)
+    PKGBUILD.SRCINFO            AUR metadata, installed as `.SRCINFO`
 
 Usage:
 
@@ -115,7 +115,9 @@ def main() -> int:
         "password-cracking.rb": templates / "homebrew" / "password-cracking.rb.tmpl",
         "password-cracking.json": templates / "scoop" / "password-cracking.json.tmpl",
         "PKGBUILD": templates / "aur" / "PKGBUILD.tmpl",
-        ".SRCINFO": templates / "aur" / ".SRCINFO.tmpl",
+        # Do not use a leading dot: `gh release upload` renames dotfiles to
+        # "default.<ext>". The AUR checkout copies this to `.SRCINFO`.
+        "PKGBUILD.SRCINFO": templates / "aur" / ".SRCINFO.tmpl",
     }
 
     args.out.mkdir(parents=True, exist_ok=True)

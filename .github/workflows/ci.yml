@@ -211,6 +211,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p release
+          # Keep README/LICENSE inside release/ so both GNU tar and BSD tar
+          # store flat member names (BSD tar keeps a leading "../" verbatim,
+          # which makes the archive unextractable by Homebrew).
+          cp README.md LICENSE release/
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             cp "target/${{ matrix.target }}/release/password-cracking.exe" \
                "release/password-cracking.exe"
@@ -227,12 +231,12 @@ jobs:
           ARCHIVE_NAME="password-cracking-${{ matrix.name }}"
 
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            7z a "${ARCHIVE_NAME}.zip" password-cracking.exe ../README.md ../LICENSE
+            7z a "${ARCHIVE_NAME}.zip" password-cracking.exe README.md LICENSE
             sha256sum "${ARCHIVE_NAME}.zip" > "${ARCHIVE_NAME}.zip.sha256"
           else
             # Keep the binary name stable (`password-cracking`) so package
             # manifests (Homebrew, Scoop, AUR) and install.sh stay simple.
-            tar -czf "${ARCHIVE_NAME}.tar.gz" password-cracking ../README.md ../LICENSE
+            tar -czf "${ARCHIVE_NAME}.tar.gz" password-cracking README.md LICENSE
             if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
               shasum -a 256 "${ARCHIVE_NAME}.tar.gz" > "${ARCHIVE_NAME}.tar.gz.sha256"
             else
