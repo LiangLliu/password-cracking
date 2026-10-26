@@ -38,8 +38,12 @@ password-cracking/
 │   └── utils/                     # Utilities
 │       └── mod.rs                 # Character sets, formatting, validation
 │
-├── packaging/
-│   └── nfpm.yaml                  # .deb/.rpm/.apk packaging config
+├── packaging/                     # Native package definitions
+│   ├── nfpm.yaml                  # .deb/.rpm/.apk packaging config
+│   ├── apt/                       # APT landing page + public signing key
+│   ├── aur/                       # PKGBUILD / .SRCINFO templates
+│   ├── homebrew/                  # Homebrew formula template
+│   └── scoop/                     # Scoop manifest template
 │
 ├── examples/                      # Test files and scripts
 │   ├── create_test_files.py       # Generate encrypted test files (password: 92eo)
@@ -58,21 +62,28 @@ password-cracking/
 │
 ├── docs/                          # Documentation
 │   ├── USER_GUIDE.md              # Complete usage guide
-│   ├── RELEASE_LINUX.md           # Linux/Unix release plan
+│   ├── DISTRIBUTION.md            # Homebrew/APT/AUR/Scoop/Docker/crates.io
+│   ├── RELEASE_LINUX.md           # Build matrix and release process
 │   ├── PROJECT_STRUCTURE.md       # This file
 │   ├── PERFORMANCE.md             # Performance benchmarks
 │   ├── ZIP_IMPLEMENTATION.md      # ZIP encryption implementation
 │   ├── DEVELOPMENT.md             # Development guide
 │   └── CI-CD.md                   # CI/CD workflows
 │
-├── scripts/                       # Development scripts
+├── scripts/                       # Development and release scripts
 │   ├── fmt.sh                     # Format and lint
-│   ├── release.sh                 # Version release
+│   ├── release.sh                 # Version bump + tag
+│   ├── install.sh                 # Static binary installer
+│   ├── gen-package-manifests.py   # Homebrew/Scoop/AUR manifest renderer
+│   ├── build-apt-repo.sh          # Signed APT repository builder
 │   └── install-hooks.sh           # Install git hooks
+│
+├── Dockerfile                     # scratch image around the static musl binary
 │
 └── .github/                       # GitHub workflows
     └── workflows/
-        └── ci.yml                 # CI: test, clippy, build, release
+        ├── ci.yml                 # test, build matrix, GitHub Release
+        └── publish.yml            # APT/Homebrew/Scoop/AUR/GHCR/crates.io
 ```
 
 ## Core Abstractions

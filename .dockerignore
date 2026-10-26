@@ -1,0 +1,5 @@
+# Only the pre-built static binaries are needed inside the image.
+*
+!Dockerfile
+!dist/linux-amd64/password-cracking
+!dist/linux-arm64/password-cracking

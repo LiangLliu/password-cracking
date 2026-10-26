@@ -52,6 +52,9 @@ jobs:
       - name: Run clippy
         run: cargo clippy -- -D warnings
 
+      - name: Validate package manifests
+        run: bash scripts/test-package-manifests.sh
+
   # 安全审计
   security-audit:
     name: Security Audit
@@ -121,18 +124,16 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             name: linux-amd64
-            nfpm_arch: amd64
-
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            name: linux-arm64
-            nfpm_arch: arm64
-            use-cross: true
 
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             name: linux-amd64-musl
             nfpm_arch: amd64
+            use-cross: true
+
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            name: linux-arm64
             use-cross: true
 
           - os: ubuntu-latest
@@ -144,6 +145,11 @@ jobs:
           - os: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
             name: linux-armv7
+            use-cross: true
+
+          - os: ubuntu-latest
+            target: armv7-unknown-linux-musleabihf
+            name: linux-armv7-musl
             nfpm_arch: armv7
             use-cross: true
 
@@ -207,11 +213,11 @@ jobs:
           mkdir -p release
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             cp "target/${{ matrix.target }}/release/password-cracking.exe" \
-               "release/password-cracking-${{ matrix.name }}.exe"
+               "release/password-cracking.exe"
           else
             cp "target/${{ matrix.target }}/release/password-cracking" \
-               "release/password-cracking-${{ matrix.name }}"
-            chmod +x "release/password-cracking-${{ matrix.name }}"
+               "release/password-cracking"
+            chmod +x "release/password-cracking"
           fi
 
       - name: Create Archive
@@ -221,12 +227,12 @@ jobs:
           ARCHIVE_NAME="password-cracking-${{ matrix.name }}"
 
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            # Windows - 创建 ZIP
-            7z a "${ARCHIVE_NAME}.zip" "password-cracking-${{ matrix.name }}.exe" ../README.md
+            7z a "${ARCHIVE_NAME}.zip" password-cracking.exe ../README.md ../LICENSE
             sha256sum "${ARCHIVE_NAME}.zip" > "${ARCHIVE_NAME}.zip.sha256"
           else
-            # Unix - 创建 tar.gz
-            tar -czf "${ARCHIVE_NAME}.tar.gz" "password-cracking-${{ matrix.name }}" ../README.md
+            # Keep the binary name stable (`password-cracking`) so package
+            # manifests (Homebrew, Scoop, AUR) and install.sh stay simple.
+            tar -czf "${ARCHIVE_NAME}.tar.gz" password-cracking ../README.md ../LICENSE
             if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
               shasum -a 256 "${ARCHIVE_NAME}.tar.gz" > "${ARCHIVE_NAME}.tar.gz.sha256"
             else
@@ -261,7 +267,8 @@ jobs:
         shell: bash
         run: |
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.43.0
-          export PATH="$PATH:$(go env GOPATH)/bin"
+          GOPATH_BIN="$(go env GOPATH)/bin"
+          export PATH="$PATH:$GOPATH_BIN"
           # Prefer the tag, but fall back to Cargo.toml for branch builds.
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
@@ -269,9 +276,16 @@ jobs:
             VERSION="$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)"
           fi
           export VERSION
-          export ARCH="${{ matrix.nfpm_arch }}"
+          BASE_ARCH="${{ matrix.nfpm_arch }}"
           for packager in deb rpm apk; do
-            nfpm package -f packaging/nfpm.yaml -p "$packager" -t release
+            # nfpm passes $ARCH through verbatim, but each format uses a
+            # different name for 32-bit ARM.
+            case "$packager:$BASE_ARCH" in
+              deb:armv7) arch="armhf" ;;
+              rpm:armv7) arch="armv7hl" ;;
+              *) arch="$BASE_ARCH" ;;
+            esac
+            ARCH="$arch" nfpm package -f packaging/nfpm.yaml -p "$packager" -t release
           done
           for f in release/*.deb release/*.rpm release/*.apk; do
             [ -f "$f" ] || continue
@@ -319,41 +333,81 @@ jobs:
       - name: Generate Release Notes
         run: |
           TAG="${{ github.ref_name }}"
-          echo "## 🎉 Password Cracking Tool Release $TAG" > RELEASE_NOTES.md
-          echo "" >> RELEASE_NOTES.md
-
-          # 获取上一个标签
           PREV_TAG=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || echo "")
 
-          if [ -n "$PREV_TAG" ]; then
-            echo "### 📋 更新日志" >> RELEASE_NOTES.md
-            echo "" >> RELEASE_NOTES.md
-            git log --pretty=format:"- %s (%h)" "$PREV_TAG".."$TAG" >> RELEASE_NOTES.md
-          else
-            echo "首次发布！" >> RELEASE_NOTES.md
-          fi
+          {
+            echo "## 🎉 Password Cracking Tool Release $TAG"
+            echo ""
+            if [ -n "$PREV_TAG" ]; then
+              echo "### 📋 更新日志"
+              echo ""
+              git log --pretty=format:"- %s (%h)" "$PREV_TAG".."$TAG"
+              echo ""
+            else
+              echo "首次发布！"
+            fi
+          } > RELEASE_NOTES.md
 
           cat >> RELEASE_NOTES.md << 'EOF'
           
-          ### 📥 下载说明
-          
+          ### 📦 安装方式
+
+          **Homebrew（macOS / Linux）**
+          ```bash
+          brew install LiangLliu/tap/password-cracking
+          ```
+
+          **APT（Debian / Ubuntu / 树莓派）**
+          ```bash
+          sudo install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://lianglliu.github.io/password-cracking/key.gpg | sudo tee /etc/apt/keyrings/password-cracking.gpg > /dev/null
+          echo "deb [signed-by=/etc/apt/keyrings/password-cracking.gpg] https://lianglliu.github.io/password-cracking stable main" | sudo tee /etc/apt/sources.list.d/password-cracking.list
+          sudo apt update && sudo apt install password-cracking
+          ```
+
+          **Arch Linux（AUR）**
+          ```bash
+          yay -S password-cracking-bin
+          ```
+
+          **Windows（Scoop）**
+          ```powershell
+          scoop bucket add lianglliu https://github.com/LiangLliu/scoop-bucket
+          scoop install password-cracking
+          ```
+
+          **Docker**
+          ```bash
+          docker run --rm -v "$PWD:/data" ghcr.io/lianglliu/password-cracking --version
+          ```
+
+          **Rust（源码安装）**
+          ```bash
+          cargo install --git https://github.com/LiangLliu/password-cracking
+          ```
+
+          ### 📥 直接下载
+
           请根据您的操作系统和架构选择合适的版本：
-          
+
           **Linux:**
-          - `password-cracking-linux-amd64.tar.gz`: 适用于 x86_64 Linux
-          - `password-cracking-linux-arm64.tar.gz`: 适用于 ARM64 Linux
-          - `password-cracking-linux-amd64-musl.tar.gz`: 适用于 Alpine Linux
-          
+          - `password-cracking-linux-amd64-musl.tar.gz`: x86_64 Linux（静态，推荐）
+          - `password-cracking-linux-arm64-musl.tar.gz`: ARM64 Linux（静态）
+          - `password-cracking-linux-armv7-musl.tar.gz`: 32 位 ARM（树莓派，静态）
+          - `password-cracking-linux-amd64.tar.gz`: x86_64 glibc
+          - `password-cracking-linux-arm64.tar.gz`: ARM64 glibc
+          - `password-cracking-linux-armv7.tar.gz`: 32 位 ARM glibc
+
           **macOS:**
           - `password-cracking-macos-amd64.tar.gz`: 适用于 Intel Mac
           - `password-cracking-macos-arm64.tar.gz`: 适用于 Apple Silicon Mac
-          
+
           **Windows:**
           - `password-cracking-windows-amd64.zip`: 适用于 64 位 Windows
           - `password-cracking-windows-i686.zip`: 适用于 32 位 Windows
-          
+
           ### 🔐 校验和
-          
+
           每个文件都附带 `.sha256` 校验和文件，请验证文件完整性后使用。
           EOF
 
@@ -372,3 +426,18 @@ jobs:
             SHA256SUMS
             install.sh
           fail_on_unmatched_files: true
+
+  # ========== 第四阶段：分发（APT / Homebrew / Scoop / AUR / GHCR / crates.io）==========
+
+  publish:
+    name: Publish packages
+    needs: release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    uses: ./.github/workflows/publish.yml
+    with:
+      version: ${{ github.ref_name }}
+    permissions:
+      contents: write
+      packages: write
+      pages: write
+    secrets: inherit

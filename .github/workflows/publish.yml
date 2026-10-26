@@ -1,0 +1,424 @@
+name: Publish packages
+
+# Called by ci.yml after the GitHub Release is created, and runnable manually
+# to re-publish a version (for example after rotating a signing key).
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.2.0 or v0.2.0)"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.2.0 or v0.2.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write   # upload manifest assets to the release, push the APT branch
+  packages: write   # push the container image to GHCR
+  pages: write      # enable/refresh GitHub Pages for the APT repository
+
+concurrency:
+  group: publish-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  prepare:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - id: v
+        run: |
+          version="${{ inputs.version }}"
+          version="${version#v}"
+          if [ -z "$version" ]; then
+            echo "::error::version input is empty"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Publishing password-cracking $version"
+
+  # ---------------------------------------------------------------------------
+  # APT repository on GitHub Pages (Debian / Ubuntu / Raspberry Pi OS)
+  # ---------------------------------------------------------------------------
+  apt:
+    name: APT repository
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends dpkg-dev apt-utils gnupg
+
+      - name: Download release packages
+        run: |
+          gh release download "${{ needs.prepare.outputs.tag }}" \
+            --dir dist --pattern '*.deb' --clobber
+
+      - name: Publish to gh-pages
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          pages_url="https://$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]').github.io/$(basename "${GITHUB_REPOSITORY}")"
+
+          # Start from the existing repository so older versions stay available.
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git clone --depth 1 --branch gh-pages \
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" site
+          else
+            mkdir site
+            git -C site init -q
+            git -C site checkout -q -b gh-pages
+            git -C site remote add origin \
+              "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          fi
+
+          args=(--debs dist --output site --version "$VERSION" --pages-url "$pages_url")
+          if [ -n "${APT_GPG_PRIVATE_KEY:-}" ]; then
+            printf '%s\n' "$APT_GPG_PRIVATE_KEY" > "$RUNNER_TEMP/apt-signing-key.asc"
+            args+=(--gpg-key "$RUNNER_TEMP/apt-signing-key.asc")
+          else
+            echo "::warning::APT_GPG_PRIVATE_KEY is not configured; publishing an unsigned repository"
+          fi
+          bash scripts/build-apt-repo.sh "${args[@]}"
+
+          # The public key is part of the site, so `curl .../key.gpg` always works.
+          if [ -f packaging/apt/password-cracking.gpg ]; then
+            cp packaging/apt/password-cracking.gpg site/key.gpg
+          fi
+
+          cd site
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "APT repository already up to date"
+          else
+            git commit -m "apt: publish ${VERSION}"
+            git push origin HEAD:gh-pages
+          fi
+          echo "APT repository: ${pages_url}/"
+
+      - name: Ensure GitHub Pages is enabled
+        continue-on-error: true
+        run: |
+          repo="${GITHUB_REPOSITORY}"
+          if ! gh api "repos/${repo}/pages" >/dev/null 2>&1; then
+            printf '%s' '{"source":{"branch":"gh-pages","path":"/"}}' \
+              | gh api -X POST "repos/${repo}/pages" --input -
+          fi
+          # Request a build explicitly; a push made with GITHUB_TOKEN is not
+          # guaranteed to enqueue one on every plan.
+          gh api -X POST "repos/${repo}/pages/builds" >/dev/null 2>&1 || true
+
+  # ---------------------------------------------------------------------------
+  # Homebrew tap (macOS + Linux)
+  # ---------------------------------------------------------------------------
+  homebrew:
+    name: Homebrew formula
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download release assets
+        run: |
+          gh release download "${{ needs.prepare.outputs.tag }}" --dir dist --clobber
+
+      - name: Generate formula
+        run: |
+          python3 scripts/gen-package-manifests.py \
+            --dist dist \
+            --version "${{ needs.prepare.outputs.version }}" \
+            --out manifests
+
+      - name: Attach formula to the release
+        run: |
+          gh release upload "${{ needs.prepare.outputs.tag }}" \
+            manifests/password-cracking.rb --clobber
+
+      - name: Check tap deploy key
+        id: guard
+        env:
+          KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::HOMEBREW_TAP_DEPLOY_KEY is not configured; formula attached to the release only"
+          fi
+
+      - name: Push formula to homebrew-tap
+        if: steps.guard.outputs.enabled == 'true'
+        env:
+          SSH_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+          git clone --depth 1 git@github.com:LiangLliu/homebrew-tap.git tap
+          mkdir -p tap/Formula
+          cp manifests/password-cracking.rb tap/Formula/password-cracking.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/password-cracking.rb
+          if git diff --cached --quiet; then
+            echo "Formula already up to date"
+          else
+            git commit -m "password-cracking ${VERSION}"
+            git push
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Scoop bucket (Windows)
+  # ---------------------------------------------------------------------------
+  scoop:
+    name: Scoop manifest
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download release assets
+        run: |
+          gh release download "${{ needs.prepare.outputs.tag }}" --dir dist --clobber
+
+      - name: Generate manifest
+        run: |
+          python3 scripts/gen-package-manifests.py \
+            --dist dist \
+            --version "${{ needs.prepare.outputs.version }}" \
+            --out manifests
+
+      - name: Attach manifest to the release
+        run: |
+          gh release upload "${{ needs.prepare.outputs.tag }}" \
+            manifests/password-cracking.json --clobber
+
+      - name: Check bucket deploy key
+        id: guard
+        env:
+          KEY: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SCOOP_BUCKET_DEPLOY_KEY is not configured; manifest attached to the release only"
+          fi
+
+      - name: Push manifest to scoop-bucket
+        if: steps.guard.outputs.enabled == 'true'
+        env:
+          SSH_KEY: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+          git clone --depth 1 git@github.com:LiangLliu/scoop-bucket.git bucket
+          cp manifests/password-cracking.json bucket/password-cracking.json
+          cd bucket
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add password-cracking.json
+          if git diff --cached --quiet; then
+            echo "Manifest already up to date"
+          else
+            git commit -m "password-cracking ${VERSION}"
+            git push
+          fi
+
+  # ---------------------------------------------------------------------------
+  # AUR (Arch Linux)
+  # ---------------------------------------------------------------------------
+  aur:
+    name: AUR package
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download release assets
+        run: |
+          gh release download "${{ needs.prepare.outputs.tag }}" --dir dist --clobber
+
+      - name: Generate PKGBUILD
+        run: |
+          python3 scripts/gen-package-manifests.py \
+            --dist dist \
+            --version "${{ needs.prepare.outputs.version }}" \
+            --out manifests
+
+      - name: Attach PKGBUILD to the release
+        run: |
+          gh release upload "${{ needs.prepare.outputs.tag }}" \
+            manifests/PKGBUILD manifests/.SRCINFO --clobber
+
+      - name: Check AUR deploy key
+        id: guard
+        env:
+          KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::AUR_SSH_PRIVATE_KEY is not configured; PKGBUILD attached to the release only"
+          fi
+
+      - name: Push to AUR
+        if: steps.guard.outputs.enabled == 'true'
+        continue-on-error: true
+        env:
+          SSH_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -t rsa,ed25519 aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
+
+          git clone ssh://aur@aur.archlinux.org/password-cracking-bin.git aur
+          cp manifests/PKGBUILD manifests/.SRCINFO aur/
+          cd aur
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "AUR package already up to date"
+          else
+            git commit -m "password-cracking ${VERSION}"
+            git push
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Container image (GHCR)
+  # ---------------------------------------------------------------------------
+  docker:
+    name: Container image
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download static Linux binaries
+        run: |
+          gh release download "${{ needs.prepare.outputs.tag }}" --dir dist \
+            --pattern 'password-cracking-linux-*-musl.tar.gz' --clobber
+          mkdir -p dist/linux-amd64 dist/linux-arm64
+          tar -xzf dist/password-cracking-linux-amd64-musl.tar.gz -C dist/linux-amd64 password-cracking
+          tar -xzf dist/password-cracking-linux-arm64-musl.tar.gz -C dist/linux-arm64 password-cracking
+
+      - name: Resolve image name
+        id: image
+        run: |
+          echo "name=ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=${{ needs.prepare.outputs.version }}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------------------------------
+  # crates.io (`cargo install password-cracking`)
+  # ---------------------------------------------------------------------------
+  crates:
+    name: crates.io
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check crate version
+        id: version
+        run: |
+          crate_version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml","rb"))["package"]["version"])')"
+          if [ "$crate_version" != "${{ needs.prepare.outputs.version }}" ]; then
+            echo "::error::Cargo.toml version ${crate_version} does not match release ${{ needs.prepare.outputs.version }}"
+            exit 1
+          fi
+          if curl -fsSL -H "User-Agent: password-cracking-release-bot" \
+              "https://crates.io/api/v1/crates/password-cracking/${crate_version}" >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check registry token
+        id: guard
+        env:
+          TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CARGO_REGISTRY_TOKEN is not configured; skipping crates.io"
+          fi
+
+      - name: Publish to crates.io
+        if: steps.guard.outputs.enabled == 'true' && steps.version.outputs.published == 'false'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked
+
+      - name: Already published
+        if: steps.version.outputs.published == 'true'
+        run: echo "password-cracking ${{ needs.prepare.outputs.version }} is already on crates.io"

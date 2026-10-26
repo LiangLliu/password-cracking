@@ -12,41 +12,56 @@
 
 ### 1. CI 工作流 (`.github/workflows/ci.yml`)
 
-在每次推送或 Pull Request 时自动运行：
+在推送、PR 和 tag 时运行：
 
-- **格式检查**：使用 `cargo fmt` 检查代码格式
-- **代码规范检查**：使用 `cargo clippy` 进行静态分析
-- **测试**：在多个操作系统和 Rust 版本上运行测试
-- **安全审计**：使用 `cargo audit` 检查依赖的安全问题
-- **代码覆盖率**：生成测试覆盖率报告（可选）
+- **Quality Check**：`cargo fmt --check`、`cargo clippy -D warnings`、包清单模板校验
+- **Security Audit**：`rustsec/audit-check`
+- **Test**：Ubuntu / macOS / Windows × stable（Ubuntu 额外跑 beta）
+- **Build**：10 个目标三元组（见下表），交叉编译使用 `cross`
+- **Create Release**：仅在 `v*` tag 时创建 GitHub Release
+- **Publish packages**：调用 `publish.yml` 发布到各包管理器
 
-### 2. 构建工作流 (`.github/workflows/build.yml`)
+构建矩阵：
 
-构建多平台二进制文件：
+| 平台 | 目标三元组 | 产物 | 发行包 |
+|------|-----------|------|--------|
+| Linux | `x86_64-unknown-linux-gnu` | `linux-amd64` | |
+| Linux | `x86_64-unknown-linux-musl` | `linux-amd64-musl` | deb/rpm/apk |
+| Linux | `aarch64-unknown-linux-gnu` | `linux-arm64` | |
+| Linux | `aarch64-unknown-linux-musl` | `linux-arm64-musl` | deb/rpm/apk |
+| Linux | `armv7-unknown-linux-gnueabihf` | `linux-armv7` | |
+| Linux | `armv7-unknown-linux-musleabihf` | `linux-armv7-musl` | deb(armhf)/rpm(armv7hl)/apk(armv7) |
+| macOS | `x86_64-apple-darwin` | `macos-amd64` | |
+| macOS | `aarch64-apple-darwin` | `macos-arm64` | |
+| Windows | `x86_64-pc-windows-msvc` | `windows-amd64` | |
+| Windows | `i686-pc-windows-msvc` | `windows-i686` | |
 
-**支持的平台和架构：**
+发行包只从 musl 构建生成：静态二进制不依赖发行版的 glibc 版本，
+amd64/arm64/armv7 都能直接运行。
 
-| 操作系统 | 架构 | 目标三元组 | 文件名 |
-|---------|------|------------|--------|
-| Linux | x86_64 | x86_64-unknown-linux-gnu | password-cracking-linux-amd64 |
-| Linux | aarch64 | aarch64-unknown-linux-gnu | password-cracking-linux-arm64 |
-| Linux | x86_64 (musl) | x86_64-unknown-linux-musl | password-cracking-linux-amd64-musl |
-| macOS | x86_64 | x86_64-apple-darwin | password-cracking-macos-amd64 |
-| macOS | aarch64 | aarch64-apple-darwin | password-cracking-macos-arm64 |
-| Windows | x86_64 | x86_64-pc-windows-msvc | password-cracking-windows-amd64.exe |
-| Windows | i686 | i686-pc-windows-msvc | password-cracking-windows-i686.exe |
-| Windows | aarch64 | aarch64-pc-windows-msvc | password-cracking-windows-arm64.exe |
+### 2. 发布工作流 (`.github/workflows/publish.yml`)
 
-### 3. 发布工作流 (`.github/workflows/release.yml`)
+由 `ci.yml` 在 Release 创建后调用，也可手动运行：
 
-当推送版本标签（如 `v1.0.0`）时自动触发：
+```bash
+gh workflow run publish.yml -f version=0.2.0
+```
 
-- 创建 GitHub Release
-- 构建所有平台的二进制文件
-- 上传构建产物到 Release
-- 生成 SHA256 校验和
+| Job | 目标 |
+|-----|------|
+| `apt` | 从 `.deb` 重建 APT 仓库，签名后推送到 `gh-pages` |
+| `homebrew` | 渲染 formula，推送到 `homebrew-tap` |
+| `scoop` | 渲染 manifest，推送到 `scoop-bucket` |
+| `aur` | 生成 PKGBUILD/.SRCINFO；配置密钥后推送到 AUR |
+| `docker` | 构建 `linux/amd64` + `linux/arm64` 镜像并推送到 GHCR |
+| `crates` | 发布到 crates.io（需要 `CARGO_REGISTRY_TOKEN`） |
 
-### 4. Release Drafter (`.github/workflows/release-drafter.yml`)
+所有 job 都从 GitHub Release 下载资产，因此可以安全重跑，不会重新编译。
+未配置的渠道会跳过并给出提示，不会让整个发布失败。
+
+渠道细节、签名密钥和一次性配置见 [DISTRIBUTION.md](DISTRIBUTION.md)。
+
+### 3. Release Drafter (`.github/workflows/release-drafter.yml`)
 
 自动生成 Release 草稿和更新日志。
 

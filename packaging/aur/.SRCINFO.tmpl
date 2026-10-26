@@ -1,0 +1,16 @@
+pkgbase = password-cracking-bin
+	pkgdesc = High-performance ZIP, PDF and Office password cracker
+	pkgver = @@VERSION@@
+	pkgrel = 1
+	url = @@HOMEPAGE@@
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	provides = password-cracking
+	conflicts = password-cracking
+	options = !strip
+	source_x86_64 = @@HOMEPAGE@@/releases/download/v@@VERSION@@/password-cracking-linux-amd64.tar.gz
+	sha256sums_x86_64 = @@SHA_LINUX_AMD64@@
+	source_aarch64 = @@HOMEPAGE@@/releases/download/v@@VERSION@@/password-cracking-linux-arm64.tar.gz
+	sha256sums_aarch64 = @@SHA_LINUX_ARM64@@
+pkgname = password-cracking-bin

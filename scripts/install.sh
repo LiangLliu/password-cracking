@@ -62,11 +62,13 @@ detect_arch() {
 OS="$(detect_os)"
 ARCH="$(detect_arch)"
 
-# Prefer the static musl build on Linux for maximum compatibility.
-if [ "$OS" = "linux" ] && [ "$ARCH" = "amd64" ]; then
-    ASSET="${BIN}-linux-amd64-musl.tar.gz"
-elif [ "$OS" = "linux" ]; then
-    ASSET="${BIN}-linux-${ARCH}.tar.gz"
+# Prefer the static musl build on Linux for maximum compatibility (glibc
+# version independent, works on Alpine and older distributions).
+if [ "$OS" = "linux" ]; then
+    case "$ARCH" in
+        amd64|arm64|armv7) ASSET="${BIN}-linux-${ARCH}-musl.tar.gz" ;;
+        *) ASSET="${BIN}-linux-${ARCH}.tar.gz" ;;
+    esac
 else
     ASSET="${BIN}-macos-${ARCH}.tar.gz"
 fi
@@ -134,4 +136,6 @@ case ":${PATH}:" in
     *":${INSTALL_DIR}:"*) ;;
     *) echo "Note: ${INSTALL_DIR} is not on your PATH." ;;
 esac
+echo "Other installation methods (Homebrew, APT, AUR, Scoop, Docker):"
+echo "  https://github.com/${REPO}/blob/master/docs/DISTRIBUTION.md"
 "${INSTALL_DIR}/${BIN}" --version

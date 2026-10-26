@@ -20,33 +20,60 @@
 
 ## 快速开始
 
+### 安装
+
 ```bash
-# 安装（Linux/macOS 静态二进制）
+# Homebrew（macOS / Linux）
+brew install LiangLliu/tap/password-cracking
+
+# Debian / Ubuntu / 树莓派系统（签名 APT 仓库）
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://lianglliu.github.io/password-cracking/key.gpg \
+  | sudo tee /etc/apt/keyrings/password-cracking.gpg > /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/password-cracking.gpg] https://lianglliu.github.io/password-cracking stable main" \
+  | sudo tee /etc/apt/sources.list.d/password-cracking.list
+sudo apt update && sudo apt install password-cracking
+
+# Arch Linux（AUR；包由 CI 生成，见 docs/DISTRIBUTION.md）
+yay -S password-cracking-bin
+
+# Windows（Scoop）
+scoop bucket add lianglliu https://github.com/LiangLliu/scoop-bucket
+scoop install password-cracking
+
+# Docker
+docker run --rm -v "$PWD:/data" ghcr.io/lianglliu/password-cracking --version
+
+# 任意 Rust 平台（crates.io 尚未发布，目前从 git 安装）
+cargo install --git https://github.com/LiangLliu/password-cracking
+
+# 静态二进制脚本（Linux / macOS）
 curl -fsSL https://raw.githubusercontent.com/LiangLliu/password-cracking/master/scripts/install.sh | sh
+```
 
-# 或从源码编译
-git clone https://github.com/LiangLliu/password-cracking
-cd password-cracking
-cargo build --release
+签名密钥、版本固定和问题排查见 [分发渠道](docs/DISTRIBUTION.md)。
 
+### 使用
+
+```bash
 # 字典攻击
-./target/release/password-cracking -f document.zip dictionary -w passwords.txt
+password-cracking -f document.zip dictionary -w passwords.txt
 
 # 暴力破解（4-6 位数字 PIN）
-./target/release/password-cracking -f document.pdf brute-force -c digits --min-length 4 --max-length 6
+password-cracking -f document.pdf brute-force -c digits --min-length 4 --max-length 6
 
 # Mask 攻击（逐位字符集，92eo = 数字数字小写小写）
-./target/release/password-cracking -f document.zip mask -m "?d?d?l?l"
+password-cracking -f document.zip mask -m "?d?d?l?l"
 
 # 混合攻击（字典 + 规则变异）
-./target/release/password-cracking -f document.docx hybrid -w dict.txt --capitalize --l33t --append-digits 99
+password-cracking -f document.docx hybrid -w dict.txt --capitalize --l33t --append-digits 99
 
 # 断点续跑
-./target/release/password-cracking -f document.pdf brute-force -c alnum --min-length 1 --max-length 8 \
+password-cracking -f document.pdf brute-force -c alnum --min-length 1 --max-length 8 \
   --checkpoint progress.ck --resume
 
 # 静默模式（脚本中使用，只输出密码）
-./target/release/password-cracking -q -f document.zip dictionary -w passwords.txt
+password-cracking -q -f document.zip dictionary -w passwords.txt
 ```
 
 ## 性能
@@ -65,8 +92,9 @@ cargo build --release
 - **[项目结构](docs/PROJECT_STRUCTURE.md)** — 架构概述
 - **[性能指南](docs/PERFORMANCE.md)** — 性能基准和优化建议
 - **[ZIP 实现](docs/ZIP_IMPLEMENTATION.md)** — ZipCrypto 加密实现细节
+- **[分发渠道](docs/DISTRIBUTION.md)** — Homebrew、APT、AUR、Scoop、Docker、crates.io
 - **[开发规范](docs/DEVELOPMENT.md)** — 编码规范和工作流
-- **[Linux/Unix 发布计划](docs/RELEASE_LINUX.md)** — 打包与分发
+- **[发布工程](docs/RELEASE_LINUX.md)** — 构建矩阵、打包与发布流程
 
 ## 示例文件
 

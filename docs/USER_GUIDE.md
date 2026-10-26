@@ -25,19 +25,56 @@ Complete usage guide for the Password Cracking Tool.
 
 ## Installation
 
+### Package managers
+
+```bash
+# Homebrew (macOS / Linux)
+brew install LiangLliu/tap/password-cracking
+
+# Debian / Ubuntu / Raspberry Pi OS
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://lianglliu.github.io/password-cracking/key.gpg \
+  | sudo tee /etc/apt/keyrings/password-cracking.gpg > /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/password-cracking.gpg] https://lianglliu.github.io/password-cracking stable main" \
+  | sudo tee /etc/apt/sources.list.d/password-cracking.list
+sudo apt update && sudo apt install password-cracking
+
+# Arch Linux
+yay -S password-cracking-bin
+
+# Windows
+scoop bucket add lianglliu https://github.com/LiangLliu/scoop-bucket
+scoop install password-cracking
+
+# Docker
+docker run --rm -v "$PWD:/data" ghcr.io/lianglliu/password-cracking --version
+
+# crates.io (once published) or from git today
+cargo install --git https://github.com/LiangLliu/password-cracking
+```
+
+### Static binary
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LiangLliu/password-cracking/master/scripts/install.sh | sh
+```
+
+### From source
+
 ```bash
 git clone https://github.com/LiangLliu/password-cracking
 cd password-cracking
 cargo build --release
 ```
 
-The binary is at `./target/release/password-cracking`.
-
-Optional: copy to your PATH:
+The binary is at `./target/release/password-cracking`. To put it on your PATH:
 
 ```bash
 cp ./target/release/password-cracking /usr/local/bin/
 ```
+
+Signing keys, supported architectures and troubleshooting are covered in
+[Distribution Channels](DISTRIBUTION.md).
 
 ---
 

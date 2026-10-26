@@ -41,8 +41,8 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     exit 1
 fi
 
-# 获取当前版本
-current_version=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+# 获取当前版本（没有 tag 时回退到 Cargo.toml，避免首次发布从 v0.0.0 开始）
+current_version=$(git describe --tags --abbrev=0 2>/dev/null || echo "v$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)")
 print_info "当前版本: $current_version"
 
 # 解析版本号

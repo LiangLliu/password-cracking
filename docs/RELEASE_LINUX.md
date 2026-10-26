@@ -1,7 +1,11 @@
 # Linux/Unix Release Plan
 
-Status: **build matrix, packages, completions, man page and installer are
-implemented and verified**.
+Status: **build matrix, packages, multi-channel publishing, completions, man
+page and installer are implemented and verified**.
+
+> Distribution channels (Homebrew, APT, AUR, Scoop, Docker, crates.io) are
+> documented in [DISTRIBUTION.md](DISTRIBUTION.md). This document focuses on
+> the build matrix and release process.
 
 > Verified 2026-10-25 via `workflow_dispatch` (run 40210210226): all 10 build
 > jobs passed, including `linux-arm64-musl` and `linux-armv7`, and produced
@@ -19,11 +23,12 @@ On a `v*` tag (or a manual `workflow_dispatch` run), CI builds and uploads:
 | `password-cracking-linux-arm64.tar.gz` | `aarch64-unknown-linux-gnu` | cross |
 | `password-cracking-linux-arm64-musl.tar.gz` | `aarch64-unknown-linux-musl` | cross, static |
 | `password-cracking-linux-armv7.tar.gz` | `armv7-unknown-linux-gnueabihf` | Raspberry Pi 32-bit |
+| `password-cracking-linux-armv7-musl.tar.gz` | `armv7-unknown-linux-musleabihf` | Raspberry Pi 32-bit, static |
 | `password-cracking-macos-{amd64,arm64}.tar.gz` | Apple targets | |
 | `password-cracking-windows-{amd64,i686}.zip` | MSVC targets | |
-| `password-cracking_<ver>_{amd64,arm64}.deb` | built from the gnu/musl binary | Debian/Ubuntu |
-| `password-cracking-<ver>-1.<arch>.rpm` | | Fedora/RHEL/openSUSE |
-| `password-cracking_<ver>_<arch>.apk` | | Alpine |
+| `password-cracking_<ver>_{amd64,arm64,armhf}.deb` | built from the musl binary | Debian/Ubuntu/Raspberry Pi OS |
+| `password-cracking-<ver>-1.{x86_64,aarch64,armv7hl}.rpm` | built from the musl binary | Fedora/RHEL/openSUSE |
+| `password-cracking_<ver>_{x86_64,aarch64,armv7}.apk` | built from the musl binary | Alpine |
 
 Every archive/package has a `.sha256`; the release also ships an aggregated
 `SHA256SUMS` and `install.sh`.
@@ -47,21 +52,35 @@ password-cracking completions fish > password-cracking.fish
 ## 2. Installation paths for users
 
 ```bash
+# Homebrew (macOS / Linux)
+brew install LiangLliu/tap/password-cracking
+
+# Debian / Ubuntu (signed APT repository)
+sudo apt install password-cracking
+
+# Arch Linux (AUR)
+yay -S password-cracking-bin
+
+# Windows (Scoop)
+scoop install password-cracking
+
+# Docker
+docker run --rm -v "$PWD:/data" ghcr.io/lianglliu/password-cracking --version
+
 # Static binary, no package manager (works on any distro)
 curl -fsSL https://raw.githubusercontent.com/LiangLliu/password-cracking/master/scripts/install.sh | sh
 
-# Debian / Ubuntu
+# Standalone packages
 sudo dpkg -i password-cracking_<ver>_amd64.deb
-
-# Fedora / RHEL / openSUSE
 sudo rpm -i password-cracking-<ver>-1.x86_64.rpm
-
-# Alpine
 sudo apk add --allow-untrusted password-cracking_<ver>_x86_64.apk
 
-# From source
-cargo install --path .        # or: cargo install password-cracking (after publishing)
+# From source / crates.io
+cargo install password-cracking
 ```
+
+Package signing, key rotation and per-channel setup live in
+[DISTRIBUTION.md](DISTRIBUTION.md).
 
 ## 3. Why musl is the primary Linux artifact
 
@@ -118,15 +137,18 @@ Add these checks to the release job (partially implemented):
 | Priority | Task | Notes |
 |----------|------|-------|
 | P0 | Container smoke tests in CI | catches glibc/musl and packaging mistakes |
-| P0 | Verify `workflow_dispatch` build path | manually trigger once before the next tag |
-| P1 | Publish to crates.io | add `repository`, `readme`, `keywords`, `categories` to `Cargo.toml`; then `cargo install password-cracking` |
 | P1 | Sign artifacts | `actions/attest-build-provenance` (SLSA) and/or Sigstore `cosign` |
-| P2 | Homebrew tap | generate a formula pointing at the release tarballs (or adopt `cargo-dist`) |
-| P2 | AUR `PKGBUILD` | Arch users |
-| P2 | `aarch64-unknown-linux-gnu` package | build `.deb`/`.rpm` from the arm64 binary in an arm runner (or use cross + nfpm arch=arm64) |
+| P1 | APT repository verification job | install into a container on every release (currently manual) |
+| P2 | AUR submission | the PKGBUILD is generated and attached; submit once, then set `AUR_SSH_PRIVATE_KEY` |
+| P2 | crates.io token | set `CARGO_REGISTRY_TOKEN` to enable `cargo install password-cracking` |
+| P2 | WinGet manifests | generate from the Windows ZIPs; submit with `wingetcreate` |
 | P3 | Reproducible builds | pin toolchain, `SOURCE_DATE_EPOCH`, verify byte-identical artifacts |
 | P3 | Reduce binary size | `opt-level="z"` variant? Keep `3` for cracking speed; musl binary is ~1.1 MB stripped |
-| P3 | Static GCC runtime for gnu builds | `-C target-feature=+crt-static` (musl is simpler) |
+
+Completed: Homebrew tap, Scoop bucket, AUR PKGBUILD generation, GHCR
+multi-arch image, APT repository on GitHub Pages, crates.io metadata and
+publish job, per-format ARMv7 architecture mapping (deb `armhf`, rpm `armv7hl`,
+apk `armv7`).
 
 ## 7. Alternative: `cargo-dist`
 
