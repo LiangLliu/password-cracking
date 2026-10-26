@@ -136,6 +136,6 @@ case ":${PATH}:" in
     *":${INSTALL_DIR}:"*) ;;
     *) echo "Note: ${INSTALL_DIR} is not on your PATH." ;;
 esac
-echo "Other installation methods (Homebrew, APT, AUR, Scoop, Docker):"
+echo "Other installation methods (Homebrew, APT, AUR, Docker):"
 echo "  https://github.com/${REPO}/blob/master/docs/DISTRIBUTION.md"
 "${INSTALL_DIR}/${BIN}" --version

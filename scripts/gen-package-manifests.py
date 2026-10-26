@@ -4,7 +4,6 @@
 One release produces one set of assets; this script turns them into:
 
     password-cracking.rb        Homebrew formula (macOS + Linux)
-    password-cracking.json      Scoop manifest (Windows)
     PKGBUILD                    AUR package (Arch Linux)
     PKGBUILD.SRCINFO            AUR metadata, installed as `.SRCINFO`
 
@@ -23,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import re
 import sys
 from pathlib import Path
@@ -38,8 +36,6 @@ ASSETS = {
     "password-cracking-linux-arm64-musl.tar.gz": "SHA_LINUX_ARM64_MUSL",
     "password-cracking-linux-amd64.tar.gz": "SHA_LINUX_AMD64",
     "password-cracking-linux-arm64.tar.gz": "SHA_LINUX_ARM64",
-    "password-cracking-windows-amd64.zip": "SHA_WINDOWS_AMD64",
-    "password-cracking-windows-i686.zip": "SHA_WINDOWS_I686",
 }
 
 HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -113,7 +109,6 @@ def main() -> int:
 
     outputs = {
         "password-cracking.rb": templates / "homebrew" / "password-cracking.rb.tmpl",
-        "password-cracking.json": templates / "scoop" / "password-cracking.json.tmpl",
         "PKGBUILD": templates / "aur" / "PKGBUILD.tmpl",
         # Do not use a leading dot: `gh release upload` renames dotfiles to
         # "default.<ext>". The AUR checkout copies this to `.SRCINFO`.
@@ -125,9 +120,6 @@ def main() -> int:
         rendered = render(template, values)
         (args.out / name).write_text(rendered, encoding="utf-8")
         print(f"generated {args.out / name}")
-
-    # Fail fast on malformed JSON instead of shipping a broken Scoop manifest.
-    json.loads((args.out / "password-cracking.json").read_text(encoding="utf-8"))
 
     print(f"\nversion:  {version}")
     print(f"base url: {base_url}")

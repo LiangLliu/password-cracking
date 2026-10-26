@@ -72,7 +72,7 @@ jobs:
     name: Test - ${{ matrix.os }} / ${{ matrix.rust }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
         rust: [stable]
         include:
           - os: ubuntu-latest
@@ -162,15 +162,6 @@ jobs:
             target: aarch64-apple-darwin
             name: macos-arm64
 
-          # Windows
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            name: windows-amd64
-
-          - os: windows-latest
-            target: i686-pc-windows-msvc
-            name: windows-i686
-
     steps:
       - uses: actions/checkout@v7
 
@@ -215,14 +206,9 @@ jobs:
           # store flat member names (BSD tar keeps a leading "../" verbatim,
           # which makes the archive unextractable by Homebrew).
           cp README.md LICENSE release/
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            cp "target/${{ matrix.target }}/release/password-cracking.exe" \
-               "release/password-cracking.exe"
-          else
-            cp "target/${{ matrix.target }}/release/password-cracking" \
-               "release/password-cracking"
-            chmod +x "release/password-cracking"
-          fi
+          cp "target/${{ matrix.target }}/release/password-cracking" \
+             "release/password-cracking"
+          chmod +x "release/password-cracking"
 
       - name: Create Archive
         shell: bash
@@ -230,18 +216,13 @@ jobs:
           cd release
           ARCHIVE_NAME="password-cracking-${{ matrix.name }}"
 
-          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            7z a "${ARCHIVE_NAME}.zip" password-cracking.exe README.md LICENSE
-            sha256sum "${ARCHIVE_NAME}.zip" > "${ARCHIVE_NAME}.zip.sha256"
+          # Keep the binary name stable (`password-cracking`) so package
+          # manifests (Homebrew, AUR) and install.sh stay simple.
+          tar -czf "${ARCHIVE_NAME}.tar.gz" password-cracking README.md LICENSE
+          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            shasum -a 256 "${ARCHIVE_NAME}.tar.gz" > "${ARCHIVE_NAME}.tar.gz.sha256"
           else
-            # Keep the binary name stable (`password-cracking`) so package
-            # manifests (Homebrew, Scoop, AUR) and install.sh stay simple.
-            tar -czf "${ARCHIVE_NAME}.tar.gz" password-cracking README.md LICENSE
-            if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
-              shasum -a 256 "${ARCHIVE_NAME}.tar.gz" > "${ARCHIVE_NAME}.tar.gz.sha256"
-            else
-              sha256sum "${ARCHIVE_NAME}.tar.gz" > "${ARCHIVE_NAME}.tar.gz.sha256"
-            fi
+            sha256sum "${ARCHIVE_NAME}.tar.gz" > "${ARCHIVE_NAME}.tar.gz.sha256"
           fi
 
       - name: Prepare Linux package contents
@@ -302,7 +283,6 @@ jobs:
           name: password-cracking-${{ matrix.name }}
           path: |
             release/*.tar.gz
-            release/*.zip
             release/*.deb
             release/*.rpm
             release/*.apk
@@ -374,12 +354,6 @@ jobs:
           yay -S password-cracking-bin
           ```
 
-          **Windows（Scoop）**
-          ```powershell
-          scoop bucket add lianglliu https://github.com/LiangLliu/scoop-bucket
-          scoop install password-cracking
-          ```
-
           **Docker**
           ```bash
           docker run --rm -v "$PWD:/data" ghcr.io/lianglliu/password-cracking --version
@@ -406,10 +380,6 @@ jobs:
           - `password-cracking-macos-amd64.tar.gz`: 适用于 Intel Mac
           - `password-cracking-macos-arm64.tar.gz`: 适用于 Apple Silicon Mac
 
-          **Windows:**
-          - `password-cracking-windows-amd64.zip`: 适用于 64 位 Windows
-          - `password-cracking-windows-i686.zip`: 适用于 32 位 Windows
-
           ### 🔐 校验和
 
           每个文件都附带 `.sha256` 校验和文件，请验证文件完整性后使用。
@@ -422,7 +392,6 @@ jobs:
           body_path: RELEASE_NOTES.md
           files: |
             artifacts/**/*.tar.gz
-            artifacts/**/*.zip
             artifacts/**/*.deb
             artifacts/**/*.rpm
             artifacts/**/*.apk
@@ -431,7 +400,7 @@ jobs:
             install.sh
           fail_on_unmatched_files: true
 
-  # ========== 第四阶段：分发（APT / Homebrew / Scoop / AUR / GHCR / crates.io）==========
+  # ========== 第四阶段：分发（APT / Homebrew / AUR / GHCR / crates.io）==========
 
   publish:
     name: Publish packages

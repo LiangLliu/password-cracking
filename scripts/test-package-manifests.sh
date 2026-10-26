@@ -2,7 +2,7 @@
 # Smoke-test the package manifest generator without building real artifacts.
 #
 # Creates dummy release assets, renders every manifest, and validates the
-# result (Ruby syntax, JSON, shell syntax, required fields). Runs on macOS and
+# result (Ruby syntax, shell syntax, required fields). Runs on macOS and
 # Linux, so it can be used both locally and in CI.
 
 set -euo pipefail
@@ -22,8 +22,6 @@ ASSETS=(
     password-cracking-linux-arm64-musl.tar.gz
     password-cracking-linux-amd64.tar.gz
     password-cracking-linux-arm64.tar.gz
-    password-cracking-windows-amd64.zip
-    password-cracking-windows-i686.zip
 )
 
 for asset in "${ASSETS[@]}"; do
@@ -46,16 +44,13 @@ python3 "$ROOT/scripts/gen-package-manifests.py" \
     --dist "$DIST" --version v9.9.9 --out "$OUT" >/dev/null
 
 test -s "$OUT/password-cracking.rb"
-test -s "$OUT/password-cracking.json"
 test -s "$OUT/PKGBUILD"
 test -s "$OUT/PKGBUILD.SRCINFO"
 
 ruby -c "$OUT/password-cracking.rb" >/dev/null
-python3 -m json.tool "$OUT/password-cracking.json" >/dev/null
 bash -n "$OUT/PKGBUILD"
 
 grep -q '9\.9\.9' "$OUT/password-cracking.rb"
-grep -q '9\.9\.9' "$OUT/password-cracking.json"
 grep -q 'pkgver=9\.9\.9' "$OUT/PKGBUILD"
 grep -q 'pkgver = 9\.9\.9' "$OUT/PKGBUILD.SRCINFO"
 grep -qP '^\tsha256sums_x86_64 = [0-9a-f]{64}$' "$OUT/PKGBUILD.SRCINFO" 2>/dev/null \

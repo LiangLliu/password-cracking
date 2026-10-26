@@ -42,8 +42,7 @@ password-cracking/
 │   ├── nfpm.yaml                  # .deb/.rpm/.apk packaging config
 │   ├── apt/                       # APT landing page + public signing key
 │   ├── aur/                       # PKGBUILD / .SRCINFO templates
-│   ├── homebrew/                  # Homebrew formula template
-│   └── scoop/                     # Scoop manifest template
+│   └── homebrew/                  # Homebrew formula template
 │
 ├── examples/                      # Test files and scripts
 │   ├── create_test_files.py       # Generate encrypted test files (password: 92eo)
@@ -62,7 +61,7 @@ password-cracking/
 │
 ├── docs/                          # Documentation
 │   ├── USER_GUIDE.md              # Complete usage guide
-│   ├── DISTRIBUTION.md            # Homebrew/APT/AUR/Scoop/Docker/crates.io
+│   ├── DISTRIBUTION.md            # Homebrew/APT/AUR/Docker/crates.io
 │   ├── RELEASE_LINUX.md           # Build matrix and release process
 │   ├── PROJECT_STRUCTURE.md       # This file
 │   ├── PERFORMANCE.md             # Performance benchmarks
@@ -74,7 +73,7 @@ password-cracking/
 │   ├── fmt.sh                     # Format and lint
 │   ├── release.sh                 # Version bump + tag
 │   ├── install.sh                 # Static binary installer
-│   ├── gen-package-manifests.py   # Homebrew/Scoop/AUR manifest renderer
+│   ├── gen-package-manifests.py   # Homebrew/AUR manifest renderer
 │   ├── build-apt-repo.sh          # Signed APT repository builder
 │   └── install-hooks.sh           # Install git hooks
 │
@@ -83,7 +82,7 @@ password-cracking/
 └── .github/                       # GitHub workflows
     └── workflows/
         ├── ci.yml                 # test, build matrix, GitHub Release
-        └── publish.yml            # APT/Homebrew/Scoop/AUR/GHCR/crates.io
+        └── publish.yml            # APT/Homebrew/AUR/GHCR/crates.io
 ```
 
 ## Core Abstractions

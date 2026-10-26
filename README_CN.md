@@ -16,7 +16,7 @@
 - **断点续跑**：`--checkpoint`/`--resume`，中断后可继续
 - **流式词表**：mmap 映射，超大词表内存平稳
 - **Unix 友好**：man page、shell 补全、`.deb`/`.rpm`/`.apk`、安装脚本
-- **跨平台**：Linux、macOS、Windows
+- **跨平台**：Linux、macOS
 
 ## 快速开始
 
@@ -36,10 +36,6 @@ sudo apt update && sudo apt install password-cracking
 
 # Arch Linux（AUR；包由 CI 生成，见 docs/DISTRIBUTION.md）
 yay -S password-cracking-bin
-
-# Windows（Scoop）
-scoop bucket add lianglliu https://github.com/LiangLliu/scoop-bucket
-scoop install password-cracking
 
 # Docker
 docker run --rm -v "$PWD:/data" ghcr.io/lianglliu/password-cracking --version
@@ -92,7 +88,7 @@ password-cracking -q -f document.zip dictionary -w passwords.txt
 - **[项目结构](docs/PROJECT_STRUCTURE.md)** — 架构概述
 - **[性能指南](docs/PERFORMANCE.md)** — 性能基准和优化建议
 - **[ZIP 实现](docs/ZIP_IMPLEMENTATION.md)** — ZipCrypto 加密实现细节
-- **[分发渠道](docs/DISTRIBUTION.md)** — Homebrew、APT、AUR、Scoop、Docker、crates.io
+- **[分发渠道](docs/DISTRIBUTION.md)** — Homebrew、APT、AUR、Docker、crates.io
 - **[开发规范](docs/DEVELOPMENT.md)** — 编码规范和工作流
 - **[发布工程](docs/RELEASE_LINUX.md)** — 构建矩阵、打包与发布流程
 

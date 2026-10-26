@@ -196,69 +196,6 @@ jobs:
           fi
 
   # ---------------------------------------------------------------------------
-  # Scoop bucket (Windows)
-  # ---------------------------------------------------------------------------
-  scoop:
-    name: Scoop manifest
-    needs: prepare
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Download release assets
-        run: |
-          gh release download "${{ needs.prepare.outputs.tag }}" --dir dist --clobber
-
-      - name: Generate manifest
-        run: |
-          python3 scripts/gen-package-manifests.py \
-            --dist dist \
-            --version "${{ needs.prepare.outputs.version }}" \
-            --out manifests
-
-      - name: Attach manifest to the release
-        run: |
-          gh release upload "${{ needs.prepare.outputs.tag }}" \
-            manifests/password-cracking.json --clobber
-
-      - name: Check bucket deploy key
-        id: guard
-        env:
-          KEY: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
-        run: |
-          if [ -n "$KEY" ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::SCOOP_BUCKET_DEPLOY_KEY is not configured; manifest attached to the release only"
-          fi
-
-      - name: Push manifest to scoop-bucket
-        if: steps.guard.outputs.enabled == 'true'
-        env:
-          SSH_KEY: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
-
-          git clone --depth 1 git@github.com:LiangLliu/scoop-bucket.git bucket
-          cp manifests/password-cracking.json bucket/password-cracking.json
-          cd bucket
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add password-cracking.json
-          if git diff --cached --quiet; then
-            echo "Manifest already up to date"
-          else
-            git commit -m "password-cracking ${VERSION}"
-            git push
-          fi
-
-  # ---------------------------------------------------------------------------
   # AUR (Arch Linux)
   # ---------------------------------------------------------------------------
   aur:

@@ -9,7 +9,6 @@ and checksums.
 | [Homebrew](#homebrew) | macOS, Linux | `brew install LiangLliu/tap/password-cracking` | auto-published on tag |
 | [APT](#debian--ubuntu-apt) | Debian, Ubuntu, Raspberry Pi OS | `sudo apt install password-cracking` | auto-published on tag |
 | [Docker](#docker-ghcr) | Linux containers | `docker run ghcr.io/lianglliu/password-cracking` | auto-published on tag |
-| [Scoop](#windows-scoop) | Windows | `scoop install password-cracking` | auto-published on tag |
 | [AUR](#arch-linux-aur) | Arch Linux | `yay -S password-cracking-bin` | PKGBUILD generated; submit once |
 | [crates.io](#cratesio) | any Rust platform | `cargo install password-cracking` | pipeline ready; token required |
 | [install.sh](#installsh) | Linux, macOS | `curl …/install.sh \| sh` | available |
@@ -116,18 +115,6 @@ The AUR package must exist before the first automated push. To create it:
 
 Supported architectures: `x86_64`, `aarch64`.
 
-## Windows (Scoop)
-
-```powershell
-scoop bucket add lianglliu https://github.com/LiangLliu/scoop-bucket
-scoop install password-cracking
-```
-
-The manifest lives in
-[`LiangLliu/scoop-bucket`](https://github.com/LiangLliu/scoop-bucket) and is
-updated automatically. It includes `checkver`/`autoupdate` support, so
-`scoop update` works without a new manifest commit.
-
 ## crates.io
 
 ```bash
@@ -163,13 +150,12 @@ CI (ci.yml)
   quality / audit / tests
         │
         ▼
-build matrix (10 targets) ──► GitHub Release (tarballs, zip, deb/rpm/apk, checksums)
+build matrix (8 targets) ──► GitHub Release (tarballs, deb/rpm/apk, checksums)
         │
         ▼
 publish (publish.yml, reusable)
   ├── apt       built from .deb assets, pushed to gh-pages
   ├── homebrew  formula rendered from checksums, pushed to homebrew-tap
-  ├── scoop     manifest rendered from checksums, pushed to scoop-bucket
   ├── aur       PKGBUILD/.SRCINFO rendered, optional AUR push
   ├── docker    multi-arch image pushed to ghcr.io
   └── crates    cargo publish (optional, needs token)
@@ -194,8 +180,8 @@ gh release download v0.2.0 --dir dist
 python3 scripts/gen-package-manifests.py --dist dist --version 0.2.0 --out manifests
 ```
 
-It refuses to produce a manifest when an asset is missing and validates the
-Scoop JSON before writing it. Templates live in `packaging/`.
+It refuses to produce a manifest when an asset is missing. Templates live in
+`packaging/`.
 
 ---
 
@@ -257,19 +243,14 @@ The publish workflow enables Pages if needed and requests a build. The site is
    rm -f tap_key tap_key.pub
    ```
 
-### 4. Scoop bucket
-
-Same pattern with `LiangLliu/scoop-bucket` and the
-`SCOOP_BUCKET_DEPLOY_KEY` secret.
-
-### 5. crates.io
+### 4. crates.io
 
 ```bash
 cargo login <token>                       # https://crates.io/settings/tokens
 gh secret set CARGO_REGISTRY_TOKEN
 ```
 
-### 6. Container package visibility
+### 5. Container package visibility
 
 GHCR packages created by `GITHUB_TOKEN` inherit the repository visibility on
 first push for public repositories, but verify it once:
@@ -353,16 +334,12 @@ packaging/
   aur/PKGBUILD.tmpl
   aur/.SRCINFO.tmpl
   homebrew/password-cracking.rb.tmpl
-  scoop/password-cracking.json.tmpl
   nfpm.yaml                    deb / rpm / apk
 ```
 
-To add a channel (WinGet, Nix, Chocolatey, Snap):
+To add a channel (Nix, Snap):
 
 1. Add a template under `packaging/<channel>/`.
 2. Extend `scripts/gen-package-manifests.py` with the new output.
 3. Add a job to `.github/workflows/publish.yml`.
 4. Verify locally with `python3 scripts/gen-package-manifests.py …`.
-
-WinGet is the easiest follow-up: generate the three YAML manifests from the
-existing Windows ZIPs and submit them with `wingetcreate update`.

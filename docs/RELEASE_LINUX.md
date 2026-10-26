@@ -3,14 +3,14 @@
 Status: **build matrix, packages, multi-channel publishing, completions, man
 page and installer are implemented and verified**.
 
-> Distribution channels (Homebrew, APT, AUR, Scoop, Docker, crates.io) are
+> Distribution channels (Homebrew, APT, AUR, Docker, crates.io) are
 > documented in [DISTRIBUTION.md](DISTRIBUTION.md). This document focuses on
 > the build matrix and release process.
 
-> Verified 2026-10-25 via `workflow_dispatch` (run 40210210226): all 10 build
-> jobs passed, including `linux-arm64-musl` and `linux-armv7`, and produced
-> `.tar.gz` + `.deb` + `.rpm` + `.apk` artifacts with checksums. The release
-> job is tag-gated and was skipped as expected.
+> Verified 2026-10-26 via the `v0.2.0` release: all 8 build jobs passed
+> (6 Linux + 2 macOS), including `linux-armv7-musl`, and produced `.tar.gz` +
+> `.deb` + `.rpm` + `.apk` artifacts with checksums. Publishing to APT,
+> Homebrew and GHCR (plus AUR artifacts) is covered in DISTRIBUTION.md.
 
 ## 1. Current pipeline (implemented)
 
@@ -25,7 +25,6 @@ On a `v*` tag (or a manual `workflow_dispatch` run), CI builds and uploads:
 | `password-cracking-linux-armv7.tar.gz` | `armv7-unknown-linux-gnueabihf` | Raspberry Pi 32-bit |
 | `password-cracking-linux-armv7-musl.tar.gz` | `armv7-unknown-linux-musleabihf` | Raspberry Pi 32-bit, static |
 | `password-cracking-macos-{amd64,arm64}.tar.gz` | Apple targets | |
-| `password-cracking-windows-{amd64,i686}.zip` | MSVC targets | |
 | `password-cracking_<ver>_{amd64,arm64,armhf}.deb` | built from the musl binary | Debian/Ubuntu/Raspberry Pi OS |
 | `password-cracking-<ver>-1.{x86_64,aarch64,armv7hl}.rpm` | built from the musl binary | Fedora/RHEL/openSUSE |
 | `password-cracking_<ver>_{x86_64,aarch64,armv7}.apk` | built from the musl binary | Alpine |
@@ -60,9 +59,6 @@ sudo apt install password-cracking
 
 # Arch Linux (AUR)
 yay -S password-cracking-bin
-
-# Windows (Scoop)
-scoop install password-cracking
 
 # Docker
 docker run --rm -v "$PWD:/data" ghcr.io/lianglliu/password-cracking --version
@@ -141,14 +137,12 @@ Add these checks to the release job (partially implemented):
 | P1 | APT repository verification job | install into a container on every release (currently manual) |
 | P2 | AUR submission | the PKGBUILD is generated and attached; submit once, then set `AUR_SSH_PRIVATE_KEY` |
 | P2 | crates.io token | set `CARGO_REGISTRY_TOKEN` to enable `cargo install password-cracking` |
-| P2 | WinGet manifests | generate from the Windows ZIPs; submit with `wingetcreate` |
 | P3 | Reproducible builds | pin toolchain, `SOURCE_DATE_EPOCH`, verify byte-identical artifacts |
 | P3 | Reduce binary size | `opt-level="z"` variant? Keep `3` for cracking speed; musl binary is ~1.1 MB stripped |
 
-Completed: Homebrew tap, Scoop bucket, AUR PKGBUILD generation, GHCR
-multi-arch image, APT repository on GitHub Pages, crates.io metadata and
-publish job, per-format ARMv7 architecture mapping (deb `armhf`, rpm `armv7hl`,
-apk `armv7`).
+Completed: Homebrew tap, AUR PKGBUILD generation, GHCR multi-arch image, APT
+repository on GitHub Pages, crates.io metadata and publish job, per-format
+ARMv7 architecture mapping (deb `armhf`, rpm `armv7hl`, apk `armv7`).
 
 ## 7. Alternative: `cargo-dist`
 

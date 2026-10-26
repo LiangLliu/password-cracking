@@ -42,10 +42,6 @@ sudo apt update && sudo apt install password-cracking
 # Arch Linux
 yay -S password-cracking-bin
 
-# Windows
-scoop bucket add lianglliu https://github.com/LiangLliu/scoop-bucket
-scoop install password-cracking
-
 # Docker
 docker run --rm -v "$PWD:/data" ghcr.io/lianglliu/password-cracking --version
 

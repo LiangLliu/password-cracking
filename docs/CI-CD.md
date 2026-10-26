@@ -5,7 +5,7 @@
 本项目使用 GitHub Actions 实现完整的 CI/CD 流程，包括：
 
 - 持续集成（CI）：自动测试、代码检查
-- 多平台构建：支持 Linux、macOS、Windows 的多种架构
+- 多平台构建：支持 Linux、macOS 的多种架构
 - 自动发布：创建 GitHub Release 并上传构建产物
 
 ## 工作流说明
@@ -16,8 +16,8 @@
 
 - **Quality Check**：`cargo fmt --check`、`cargo clippy -D warnings`、包清单模板校验
 - **Security Audit**：`rustsec/audit-check`
-- **Test**：Ubuntu / macOS / Windows × stable（Ubuntu 额外跑 beta）
-- **Build**：10 个目标三元组（见下表），交叉编译使用 `cross`
+- **Test**：Ubuntu / macOS × stable（Ubuntu 额外跑 beta）
+- **Build**：8 个目标三元组（见下表），交叉编译使用 `cross`
 - **Create Release**：仅在 `v*` tag 时创建 GitHub Release
 - **Publish packages**：调用 `publish.yml` 发布到各包管理器
 
@@ -33,8 +33,6 @@
 | Linux | `armv7-unknown-linux-musleabihf` | `linux-armv7-musl` | deb(armhf)/rpm(armv7hl)/apk(armv7) |
 | macOS | `x86_64-apple-darwin` | `macos-amd64` | |
 | macOS | `aarch64-apple-darwin` | `macos-arm64` | |
-| Windows | `x86_64-pc-windows-msvc` | `windows-amd64` | |
-| Windows | `i686-pc-windows-msvc` | `windows-i686` | |
 
 发行包只从 musl 构建生成：静态二进制不依赖发行版的 glibc 版本，
 amd64/arm64/armv7 都能直接运行。
@@ -51,7 +49,6 @@ gh workflow run publish.yml -f version=0.2.0
 |-----|------|
 | `apt` | 从 `.deb` 重建 APT 仓库，签名后推送到 `gh-pages` |
 | `homebrew` | 渲染 formula，推送到 `homebrew-tap` |
-| `scoop` | 渲染 manifest，推送到 `scoop-bucket` |
 | `aur` | 生成 PKGBUILD/.SRCINFO；配置密钥后推送到 AUR |
 | `docker` | 构建 `linux/amd64` + `linux/arm64` 镜像并推送到 GHCR |
 | `crates` | 发布到 crates.io（需要 `CARGO_REGISTRY_TOKEN`） |
