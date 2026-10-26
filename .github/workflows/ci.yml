@@ -252,7 +252,7 @@ jobs:
 
       - name: Set up Go (nfpm)
         if: matrix.nfpm_arch
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: stable
 
