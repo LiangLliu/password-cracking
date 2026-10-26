@@ -16,3 +16,21 @@ Description: High-performance document password cracker.
  with dictionary, brute-force, mask and hybrid attacks.
 License: MIT
 
+Package: password-cracking
+Version: 0.2.1
+Architecture: armhf
+Maintainer: LiangLliu <max1141847753@gmail.com>
+Installed-Size: 1551
+Filename: pool/main/p/password-cracking/password-cracking_0.2.1_armhf.deb
+Size: 869314
+MD5sum: 0975b5c98b224d833a1be8623133a2d1
+SHA1: ad72219cde53580046e8c90baf1d3b2a0ae52d49
+SHA256: 640792976d65fce07e74c56ea513b74070e55d013d5d66be3a0081cadcd5f57b
+Section: utils
+Priority: optional
+Homepage: https://github.com/LiangLliu/password-cracking
+Description: High-performance document password cracker.
+ Supports ZIP (ZipCrypto/AES), PDF (RC4/AES) and Office (Agile AES) files
+ with dictionary, brute-force, mask and hybrid attacks.
+License: MIT
+

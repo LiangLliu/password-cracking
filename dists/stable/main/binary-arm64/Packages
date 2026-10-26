@@ -16,3 +16,21 @@ Description: High-performance document password cracker.
  with dictionary, brute-force, mask and hybrid attacks.
 License: MIT
 
+Package: password-cracking
+Version: 0.2.1
+Architecture: arm64
+Maintainer: LiangLliu <max1141847753@gmail.com>
+Installed-Size: 1509
+Filename: pool/main/p/password-cracking/password-cracking_0.2.1_arm64.deb
+Size: 850576
+MD5sum: f76c8fc4f08a9677aa1aed3605426e68
+SHA1: 868c65c2df75c85ae3bc87a8c82ede3d7b304dd6
+SHA256: 3c920872965c46d9f3499921b5e82b1b4d23f190609b728a002515724e5ce3ab
+Section: utils
+Priority: optional
+Homepage: https://github.com/LiangLliu/password-cracking
+Description: High-performance document password cracker.
+ Supports ZIP (ZipCrypto/AES), PDF (RC4/AES) and Office (Agile AES) files
+ with dictionary, brute-force, mask and hybrid attacks.
+License: MIT
+
