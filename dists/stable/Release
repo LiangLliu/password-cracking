@@ -5,25 +5,25 @@ Codename: stable
 Components: main
 Architectures: amd64 arm64 armhf
 Description: password-cracking APT repository
-Date: Mon, 26 Oct 2026 03:58:00 +0000
+Date: Mon, 26 Oct 2026 12:11:20 +0000
 MD5Sum:
- 4ccd3e162e16ce017d0600bf70eec70f              671 main/binary-amd64/Packages
- 82ef9834c9a518a1c781a01b272fe461              480 main/binary-amd64/Packages.gz
- a9dee3e745e7cd7c4d79e650489d61db              671 main/binary-arm64/Packages
- ff5fba82b7874bb8970b3fa3abdf5ae7              482 main/binary-arm64/Packages.gz
- 4b98f4af323ce5d336070d789384d1e4              671 main/binary-armhf/Packages
- 668f29a152bb4150f01fe2ec9df856f9              482 main/binary-armhf/Packages.gz
+ 75f1caa04a6dc748c76248642e455202              671 main/binary-amd64/Packages
+ 449a84460775316c20ed665233a67b26              483 main/binary-amd64/Packages.gz
+ 975990c6e7e596a047b1ac156dc932f1              671 main/binary-arm64/Packages
+ f9102eb31ed8d8d28bce9fc0f3386bef              483 main/binary-arm64/Packages.gz
+ fa3d5729126e73f44331d9d722ce64d9              671 main/binary-armhf/Packages
+ 9f072e4441487a86a9bfbb0776a998c3              482 main/binary-armhf/Packages.gz
 SHA1:
- b6644ddb8ae5c2d954b1fcd6a16a7ce71a716037              671 main/binary-amd64/Packages
- 628eae0c93bc04f9da97af2a8372fa117894e4c2              480 main/binary-amd64/Packages.gz
- e8acc9cc687d9b57e8d88cb5930ab62941c2d5ab              671 main/binary-arm64/Packages
- e06eebc34d18f2b8d2509c5dfa3d188561697457              482 main/binary-arm64/Packages.gz
- 78c86870df33c246b607ae019a3915772d61be50              671 main/binary-armhf/Packages
- 503cefbf0f12e98e550ec8a92230f1606ee0fc08              482 main/binary-armhf/Packages.gz
+ bf2af214b2847f485408e9cce25f9674b44c0736              671 main/binary-amd64/Packages
+ f79d9224b3917044f1a9d47bdd1f8c660abb7c71              483 main/binary-amd64/Packages.gz
+ 93ef614d4dc547e90010eca5cdcfc02f5eb7d216              671 main/binary-arm64/Packages
+ 542243a2be9fa24a80fba6b23445075664fb8395              483 main/binary-arm64/Packages.gz
+ e496d07c6983dd00703db6bb0d8da7846dfbe7fd              671 main/binary-armhf/Packages
+ e0e24e48842530812bb5a8e22b70106aed2db597              482 main/binary-armhf/Packages.gz
 SHA256:
- 976de5f9ac235a90f183ddc1afbe9f56a71a5c14c3e0a375a52225b52426e29b              671 main/binary-amd64/Packages
- 7d6754c36f0b8f3a1f47bab1aa6079e98547a5c512156ffd5787414a5efbe54e              480 main/binary-amd64/Packages.gz
- 3e572f236b048ab16c676e82f54079514a96cf44c956a35f3f9ac7c621554e09              671 main/binary-arm64/Packages
- d67bbe9e57e7620c880cb79089fa95c75451ed0ecae585330f41bb5c81a0d399              482 main/binary-arm64/Packages.gz
- 662d3de71ec3f28b870fed768f3e1b7f36c4485341cd1b6f2a59f1961ec86af8              671 main/binary-armhf/Packages
- 8df1d4e74f9cdccff0ed48588b35cfc93d6896ba2492b0083f042f987997aa1e              482 main/binary-armhf/Packages.gz
+ fa1c1b60a8cd3f62ec7658f30fc1cf81bde2a810156a5cbd5584c17b68236322              671 main/binary-amd64/Packages
+ 98d83951f2f81ddb22d33c167bbd3681cbad6153574563a05108d1a3554f3297              483 main/binary-amd64/Packages.gz
+ 3d14129ff52a2b8c879240a1ffb7ce844e501ab572a36a3bfeea5e82d85ab304              671 main/binary-arm64/Packages
+ dca6661df7281f3c81888e9f75f7c561cc2b0a727b33c89cad5de1dc313453dd              483 main/binary-arm64/Packages.gz
+ 40e016b491a91f9495c6ab9157e95e707edabdabdf96a81e98b852d08d0c326a              671 main/binary-armhf/Packages
+ 1a658a516f9150f232448e78ce800f5f1fc1a653fabdc3f3b83e35fa376f4b78              482 main/binary-armhf/Packages.gz

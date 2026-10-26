@@ -4,10 +4,10 @@ Architecture: arm64
 Maintainer: LiangLliu <max1141847753@gmail.com>
 Installed-Size: 1505
 Filename: pool/main/p/password-cracking/password-cracking_0.2.0_arm64.deb
-Size: 850840
-MD5sum: 0cecf91917a82822026077d6c3033def
-SHA1: 65681c36a53c3ecb2808f01d4c561ec78f8a9f96
-SHA256: 2cad05037daf2fdcd0a58a2b73c218d1d19f52d16f0616379f2b5c324eb41847
+Size: 850844
+MD5sum: 8daa9b4546748c71fe0fbed192784e35
+SHA1: 237a13ba0a4f12b1a8f772868c821ebfbf1e04d8
+SHA256: 7dda5b27246c0a9365224b60a7c35940032ee62e048a188279b56300d27b2c30
 Section: utils
 Priority: optional
 Homepage: https://github.com/LiangLliu/password-cracking

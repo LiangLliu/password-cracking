@@ -4,10 +4,10 @@ Architecture: armhf
 Maintainer: LiangLliu <max1141847753@gmail.com>
 Installed-Size: 1547
 Filename: pool/main/p/password-cracking/password-cracking_0.2.0_armhf.deb
-Size: 868444
-MD5sum: 967e561ab0de42041d23e4cf08875060
-SHA1: da6b4d97accafbf34215aa23f1a09bbdd46f0858
-SHA256: 6215bc0908d604da022dc7ff70747c408133da54989d64c1675899747d322cad
+Size: 868442
+MD5sum: 2ac59eaef1b3d45dce440caa50aee3d2
+SHA1: 50dd5d44947bbbfcea7edf2209dab106f316f4da
+SHA256: 5351a0a73ac387447f2b646a71e3e9c566d61408ce6c6cad4d854600281aea0c
 Section: utils
 Priority: optional
 Homepage: https://github.com/LiangLliu/password-cracking

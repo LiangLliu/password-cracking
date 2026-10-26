@@ -4,10 +4,10 @@ Architecture: amd64
 Maintainer: LiangLliu <max1141847753@gmail.com>
 Installed-Size: 1789
 Filename: pool/main/p/password-cracking/password-cracking_0.2.0_amd64.deb
-Size: 901526
-MD5sum: bf244432f1ff5efc81b72aff51580153
-SHA1: 22c5994f55a35fec3c82371afce7fb0f3b4d399c
-SHA256: 882db205c613e73366bbefe73eba8b1451c8097cfab56834d734de52421cec9b
+Size: 901524
+MD5sum: 3e5ed295713659f99b2ff1889852f243
+SHA1: b7f6ab53603896194180369b7dae304eda40b9b9
+SHA256: 7af56d41b87c438ec68f82845f6e178325fb288a530f1a95c94d6ff999c6a199
 Section: utils
 Priority: optional
 Homepage: https://github.com/LiangLliu/password-cracking
