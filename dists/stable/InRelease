@@ -1,0 +1,48 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Origin: password-cracking
+Label: password-cracking
+Suite: stable
+Codename: stable
+Components: main
+Architectures: amd64 arm64 armhf
+Description: password-cracking APT repository
+Date: Mon, 26 Oct 2026 03:45:34 +0000
+MD5Sum:
+ 5555fa6baa7008197853ed9689a97fe4              671 main/binary-amd64/Packages
+ 257fd13ea86ea7b26c7885c04c081ed2              483 main/binary-amd64/Packages.gz
+ 831f0803fd506c0446a56b9fe1a46f49              671 main/binary-arm64/Packages
+ 9a348680086ba9ae6ab8c415ea765569              482 main/binary-arm64/Packages.gz
+ cd9ba38f1daac75d1c8ddb883e88be18              671 main/binary-armhf/Packages
+ 086b35ba0ed5798b1224fb1cc2e2a207              483 main/binary-armhf/Packages.gz
+SHA1:
+ 07c8fed07470e16e322f24f3225d8552b146c78a              671 main/binary-amd64/Packages
+ 0952f0f78a767bd418f8e485a6815f5dd75c6843              483 main/binary-amd64/Packages.gz
+ 7d37d72232b0057673018c3417dff6f0b1d3684b              671 main/binary-arm64/Packages
+ 25ffcb07c62775ce429685b181b2c4a3fb8dc114              482 main/binary-arm64/Packages.gz
+ 772ea097664cc46780e5b2f9b6c87bb886ab2042              671 main/binary-armhf/Packages
+ 1257a3d4a1fbb1f7c73cfb739c03e1153cb942a7              483 main/binary-armhf/Packages.gz
+SHA256:
+ b19936f1fc8f2be839838e192eb2816267fcd51b332f438b9cb57331abe24b4b              671 main/binary-amd64/Packages
+ b30a0bef7989e2f27f9a354bd3f03ba658d92352e998a8374b6c390cb4877e19              483 main/binary-amd64/Packages.gz
+ a227681d35caf372758c9e0b2cf21e51f98c5bf49e38aacf3ac0650cab8a1752              671 main/binary-arm64/Packages
+ c749ee4a978df92bc93697ee667601cc3df5604c6785e9d75ef14c8a98334cc8              482 main/binary-arm64/Packages.gz
+ 69a9c7454a1962f47d6185af3bcb2c37e6da9b5ff1c9361272f66107aeef6099              671 main/binary-armhf/Packages
+ c03305716f9e81ee8c56594ae5c5b85c437001bb13d84f37f91f92d9062690c5              483 main/binary-armhf/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEEF+SdBvTjtjyIaOxAwzSbqZ6+WpIFAmrezN4ACgkQwzSbqZ6+
+WpK7cw//etPPIW8MYpdD1AhJZfRSwIRWes50VhupjxdwvHtymEyg/KDnCFfys+4G
+eWM9zMuP7sVOTfiaVF8ctBni5lma6abEBe1T/n6qhSgAx8eyf0lnt61vyKm2KQtl
+cSSXTi110L4iW4fYvCxq0STF2IhdE75qhkYrsubNdxPob6dx/gyKF3s0M6Z2NPsh
+5czCF26cAukcV9zOE8Uu84rLrw+PNrsH3IOob6Gm5Wvg3NWl9DJdOcXkQpejGa9W
+b216V2lu+rjcAWC/NpB2C7XyTLB5lVazopt9DtNAS3ol3OabGeikt1baNbeznbxL
+Vne3cknn99QqebqF4pLpNS6n/bblTcCuWMGQ/qiZDJpf4ksgarYwu5Gh2w8VFegU
+3GAJo4me8CHvCeQeVIp6VxOWBC3G7HRL+VtFtAMsR+1hXx+eAVkgtF7e5YKHRV1B
+tlqErlhTdK1noC6M8kSMIhdw5vUnrwyuFHlD8PLUZ5ap5n+4SAHegU5sZoNdOYVk
+Ni8PTlcEhdgBauFDS+nWVOAQT2/sw9t4YSb0PzIhhbXhBClf2QOw9ElKGjGXUfn0
+0PPHXQaHQWu7x8eQsJssN7mxS1DB3N95KQJ5jTD3lyxOVd0i5c46nc/opXlT47OV
+1D03q0OPAQCn8mXo8+9qvtdrZLBmFp33IvuJXvz/XiH6BUGPkFo=
+=kJy5
+-----END PGP SIGNATURE-----

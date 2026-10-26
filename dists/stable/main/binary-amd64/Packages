@@ -1,0 +1,18 @@
+Package: password-cracking
+Version: 0.2.0
+Architecture: amd64
+Maintainer: LiangLliu <max1141847753@gmail.com>
+Installed-Size: 1789
+Filename: pool/main/p/password-cracking/password-cracking_0.2.0_amd64.deb
+Size: 901526
+MD5sum: 69b323304eca9db0aa299b828e6af1cd
+SHA1: b4d2296aa0773768713605fbe1dac14546f72cb5
+SHA256: 48ade742565ed8ad4ada6c0b42da92ec044a83cc2f135c4fc03d9fe4b709997f
+Section: utils
+Priority: optional
+Homepage: https://github.com/LiangLliu/password-cracking
+Description: High-performance document password cracker.
+ Supports ZIP (ZipCrypto/AES), PDF (RC4/AES) and Office (Agile AES) files
+ with dictionary, brute-force, mask and hybrid attacks.
+License: MIT
+
