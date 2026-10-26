@@ -122,7 +122,15 @@ impl ZipVerifier {
             let entry = archive.by_index_raw(i)?;
             if entry.encrypted() {
                 encrypted_indices.push(i);
-                if entry.compression() == zip::CompressionMethod::Aes {
+                // The `zip` crate rewrites an AES entry's compression method to
+                // the inner method (e.g. Deflate) after parsing the AES extra
+                // field, so `compression() == Aes` is not reliable. Detect the
+                // 0x9901 extra field directly.
+                let is_aes = entry.compression() == zip::CompressionMethod::Aes
+                    || entry
+                        .extra_data_fields()
+                        .any(|field| matches!(field, zip::ExtraField::AeXEncryption(_)));
+                if is_aes {
                     encryption = Encryption::Aes;
                 }
             }
@@ -232,7 +240,9 @@ impl PasswordVerifier for ZipVerifier {
                     last_byte == ((self.crc32 >> 24) & 0xff) as u8
                 }
             }
-            Encryption::Aes => self.verify(password),
+            // AES verification is itself expensive; returning true here makes
+            // the engine call `verify` exactly once instead of twice.
+            Encryption::Aes => true,
         }
     }
 

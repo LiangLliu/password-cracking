@@ -246,3 +246,32 @@ fn mask_cracks_pdf() {
     };
     assert_eq!(crack(&example("test.pdf"), mode).as_deref(), Some(KNOWN_PASSWORD));
 }
+
+#[test]
+fn dictionary_cracks_zip_aes() {
+    // AES ZIPs report the inner compression method after the zip crate parses
+    // the AES extra field; the verifier must still detect AES and skip the
+    // ZipCrypto header check.
+    let wl = wordlist_with_password();
+    let mode = GeneratorMode::Dictionary {
+        path: wl.path().to_path_buf(),
+        dedup: false,
+    };
+    assert_eq!(crack(&example("test_aes.zip"), mode).as_deref(), Some(KNOWN_PASSWORD));
+}
+
+#[test]
+fn dictionary_cracks_office_unicode_password() {
+    // Office passwords are UTF-16LE; non-ASCII candidates must be decoded
+    // from UTF-8 before hashing.
+    let mut wl = tempfile::NamedTempFile::new().expect("create temp wordlist");
+    writeln!(wl, "wrong").unwrap();
+    writeln!(wl, "密码92eo").unwrap();
+    wl.flush().unwrap();
+
+    let mode = GeneratorMode::Dictionary {
+        path: wl.path().to_path_buf(),
+        dedup: false,
+    };
+    assert_eq!(crack(&example("test_unicode.docx"), mode).as_deref(), Some("密码92eo"));
+}

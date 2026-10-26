@@ -10,8 +10,8 @@ use std::path::PathBuf;
     version,
     about = "High-performance document password cracker",
     long_about = "Cracks password-protected ZIP, PDF, and Office documents.\n\
-                  Supports dictionary, brute-force, and hybrid (rule-based) attacks.\n\
-                  Automatically detects file format and encryption type."
+                  Attack modes: dictionary, brute-force, mask, and hybrid (rules).\n\
+                  Automatically detects the file format and encryption type."
 )]
 pub struct Cli {
     /// Target file to crack (not needed for completions/man)
@@ -70,14 +70,6 @@ pub enum AttackMode {
         #[arg(long, default_value = "6")]
         max_length: usize,
     },
-    /// Generate shell completions or a man page (Unix integration)
-    Completions {
-        /// Shell: bash, zsh, fish, elvish, powershell
-        #[arg(value_enum)]
-        shell: clap_complete::Shell,
-    },
-    /// Generate the roff man page
-    Man,
     /// Mask attack: per-position character sets (e.g. ?u?l?l?l?d?d)
     Mask {
         /// Mask pattern (?d digits, ?l lower, ?u upper, ?s special, ?a all, ?? literal ?)
@@ -111,6 +103,14 @@ pub enum AttackMode {
         #[arg(long)]
         append_digits: Option<u32>,
     },
+    /// Generate shell completion scripts for the given shell
+    Completions {
+        /// Shell: bash, zsh, fish, elvish, powershell
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
+    /// Generate a roff man page on stdout
+    Man,
 }
 
 impl Cli {
@@ -196,7 +196,12 @@ fn resolve_charset(name: &str) -> String {
     }
 }
 
-pub fn run() -> Result<()> {
+/// Runs the CLI.
+///
+/// Returns `Ok(true)` when a password was found, `Ok(false)` when the search
+/// was exhausted without a match. Errors are returned for invalid input or
+/// runtime failures.
+pub fn run() -> Result<bool> {
     let cli = Cli::parse();
 
     // Unix integration commands do not need a target file.
@@ -204,12 +209,12 @@ pub fn run() -> Result<()> {
         AttackMode::Completions { shell } => {
             let mut cmd = <Cli as clap::CommandFactory>::command();
             clap_complete::generate(*shell, &mut cmd, "password-cracking", &mut std::io::stdout());
-            return Ok(());
+            return Ok(true);
         }
         AttackMode::Man => {
             let cmd = <Cli as clap::CommandFactory>::command();
             clap_mangen::Man::new(cmd).render(&mut std::io::stdout())?;
-            return Ok(());
+            return Ok(true);
         }
         _ => {}
     }
@@ -298,6 +303,7 @@ pub fn run() -> Result<()> {
             } else {
                 println!("\nPassword found: {pw}");
             }
+            Ok(true)
         }
         None => {
             if !cli.quiet {
@@ -305,10 +311,9 @@ pub fn run() -> Result<()> {
             } else {
                 eprintln!("not found");
             }
+            Ok(false)
         }
     }
-
-    Ok(())
 }
 
 /// Canonicalized target path for checkpoint comparison.

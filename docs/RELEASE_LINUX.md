@@ -1,174 +1,162 @@
-# Linux/Unix Release Plan
+# Release Engineering
 
-Status: **build matrix, packages, multi-channel publishing, completions, man
-page and installer are implemented and verified**.
+**English** | [中文](RELEASE_LINUX.zh-CN.md)
 
-> Distribution channels (Homebrew, APT, AUR, Docker, crates.io) are
-> documented in [DISTRIBUTION.md](DISTRIBUTION.md). This document focuses on
-> the build matrix and release process.
+How Linux and macOS artifacts are built, packaged and published. Distribution
+channels and signing-key setup live in [DISTRIBUTION.md](DISTRIBUTION.md).
 
-> Verified 2026-10-26 via the `v0.2.0` release: all 8 build jobs passed
-> (6 Linux + 2 macOS), including `linux-armv7-musl`, and produced `.tar.gz` +
-> `.deb` + `.rpm` + `.apk` artifacts with checksums. Publishing to APT,
-> Homebrew and GHCR (plus AUR artifacts) is covered in DISTRIBUTION.md.
+## Build matrix
 
-## 1. Current pipeline (implemented)
-
-On a `v*` tag (or a manual `workflow_dispatch` run), CI builds and uploads:
+A `v*` tag (or a manual `workflow_dispatch` run) builds **8 targets**:
 
 | Artifact | Target triple | Notes |
 |----------|---------------|-------|
-| `password-cracking-linux-amd64.tar.gz` | `x86_64-unknown-linux-gnu` | glibc 2.17+ |
-| `password-cracking-linux-amd64-musl.tar.gz` | `x86_64-unknown-linux-musl` | **static, recommended** |
+| `password-cracking-linux-amd64.tar.gz` | `x86_64-unknown-linux-gnu` | glibc 2.39+ |
+| `password-cracking-linux-amd64-musl.tar.gz` | `x86_64-unknown-linux-musl` | static, recommended |
 | `password-cracking-linux-arm64.tar.gz` | `aarch64-unknown-linux-gnu` | cross |
 | `password-cracking-linux-arm64-musl.tar.gz` | `aarch64-unknown-linux-musl` | cross, static |
-| `password-cracking-linux-armv7.tar.gz` | `armv7-unknown-linux-gnueabihf` | Raspberry Pi 32-bit |
-| `password-cracking-linux-armv7-musl.tar.gz` | `armv7-unknown-linux-musleabihf` | Raspberry Pi 32-bit, static |
-| `password-cracking-macos-{amd64,arm64}.tar.gz` | Apple targets | |
-| `password-cracking_<ver>_{amd64,arm64,armhf}.deb` | built from the musl binary | Debian/Ubuntu/Raspberry Pi OS |
-| `password-cracking-<ver>-1.{x86_64,aarch64,armv7hl}.rpm` | built from the musl binary | Fedora/RHEL/openSUSE |
-| `password-cracking_<ver>_{x86_64,aarch64,armv7}.apk` | built from the musl binary | Alpine |
+| `password-cracking-linux-armv7.tar.gz` | `armv7-unknown-linux-gnueabihf` | Raspberry Pi 2+ |
+| `password-cracking-linux-armv7-musl.tar.gz` | `armv7-unknown-linux-musleabihf` | static |
+| `password-cracking-macos-amd64.tar.gz` | `x86_64-apple-darwin` | Intel Mac |
+| `password-cracking-macos-arm64.tar.gz` | `aarch64-apple-darwin` | Apple Silicon |
 
-Every archive/package has a `.sha256`; the release also ships an aggregated
-`SHA256SUMS` and `install.sh`.
+Every archive contains a flat `password-cracking` binary plus `README.md` and
+`LICENSE`. Archives are built on the native runner (macOS) or with `cross`
+(Linux cross targets).
 
-Also included in packages:
+## Native packages
 
-- man page: `/usr/share/man/man1/password-cracking.1`
-- bash completion: `/usr/share/bash-completion/completions/password-cracking`
-- zsh completion: `/usr/share/zsh/site-functions/_password-cracking`
-- fish completion: `/usr/share/fish/vendor_completions.d/password-cracking.fish`
+Built with [nfpm](https://nfpm.goreleaser.com/) from the **musl** binaries:
 
-Generate them ad hoc:
+| Format | Architectures | Notes |
+|--------|---------------|-------|
+| `.deb` | `amd64`, `arm64`, `armhf` | Debian, Ubuntu, Raspberry Pi OS |
+| `.rpm` | `x86_64`, `aarch64`, `armv7hl` | Fedora, RHEL, openSUSE |
+| `.apk` | `x86_64`, `aarch64`, `armv7` | Alpine |
 
-```bash
-password-cracking man > password-cracking.1
-password-cracking completions bash > password-cracking.bash
-password-cracking completions zsh  > _password-cracking
-password-cracking completions fish > password-cracking.fish
+ARMv7 uses a different name in each format; CI maps them per packager:
+
+```text
+deb: armv7 -> armhf
+rpm: armv7 -> armv7hl
+apk: armv7 -> armv7
 ```
 
-## 2. Installation paths for users
+Packages include the binary, man page, bash/zsh/fish completions and the
+license. There are no maintainer scripts; the binary is static for musl builds.
 
-```bash
-# Homebrew (macOS / Linux)
-brew install LiangLliu/tap/password-cracking
-
-# Debian / Ubuntu (signed APT repository)
-sudo apt install password-cracking
-
-# Arch Linux (AUR)
-yay -S password-cracking-bin
-
-# Docker
-docker run --rm -v "$PWD:/data" ghcr.io/lianglliu/password-cracking --version
-
-# Static binary, no package manager (works on any distro)
-curl -fsSL https://raw.githubusercontent.com/LiangLliu/password-cracking/master/scripts/install.sh | sh
-
-# Standalone packages
-sudo dpkg -i password-cracking_<ver>_amd64.deb
-sudo rpm -i password-cracking-<ver>-1.x86_64.rpm
-sudo apk add --allow-untrusted password-cracking_<ver>_x86_64.apk
-
-# From source / crates.io
-cargo install password-cracking
-```
-
-Package signing, key rotation and per-channel setup live in
-[DISTRIBUTION.md](DISTRIBUTION.md).
-
-## 3. Why musl is the primary Linux artifact
+## Why musl is the primary Linux binary
 
 - The `x86_64-unknown-linux-gnu` binary is linked against the runner's glibc.
-  Users on older distributions (CentOS 7, Debian 10) may see
-  `GLIBC_2.xx not found`.
-- The musl build is fully static (`ldd` reports "not a dynamic executable") and
-  runs on any x86_64/aarch64 Linux.
-- `.deb`/`.rpm` packages can use the musl binary too; the plan is to publish
-  both (glibc for distro purity, musl for portability). The installer prefers
-  musl on Linux.
+  Older distributions can fail with `GLIBC_2.xx not found`.
+- The musl build is fully static (`file` reports "statically linked") and runs
+  on any x86_64/aarch64/armv7 Linux with a compatible kernel.
+- Distro packages use the musl binary, so a `.deb` installed on Debian 12 and a
+  `.rpm` installed on Fedora behave identically.
+- The static binary is ~1.1 MB stripped; the scratch Docker image is ~1.7 MB.
 
-## 4. Verification strategy
+GNU tarballs are still published for users who prefer a dynamically linked
+binary and for the AUR package (Arch ships a recent glibc).
 
-Add these checks to the release job (partially implemented):
+## Release pipeline
 
-1. **Smoke test** each native artifact: run `password-cracking --version` and
-   `password-cracking man | head`.
-2. **Container test** for Linux packages (matrix):
-   ```yaml
-   strategy:
-     matrix:
-       image: [debian:stable-slim, ubuntu:24.04, alpine:3.20, fedora:latest]
-   steps:
-     - run: |
-         docker run --rm -v "$PWD/release:/r" ${{ matrix.image }} sh -c \
-           'ls /r && (/r/password-cracking --version || true)'
-   ```
-   For deb/rpm/apk, install into the container and run `--version`.
-3. **Cross-arch execution** via `qemu-user-static`:
-   ```bash
-   docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-   docker run --rm -v "$PWD/release:/r" arm64v8/alpine:3.20 \
-     /r/password-cracking-linux-arm64-musl --version
-   ```
-4. **Installer test**: run `install.sh --prefix /tmp/prefix` against the built
-   artifacts (serve them locally or use the draft release URL).
+```text
+tag v0.2.1
+  │
+  ├── quality-check (fmt, clippy, manifest templates)
+  ├── security-audit (RustSec)
+  ├── test (Ubuntu stable/beta, macOS stable)
+  │
+  ├── build × 8 ──► tarballs + deb/rpm/apk + per-file .sha256
+  │
+  ├── GitHub Release ──► 39 assets + SHA256SUMS + install.sh
+  │
+  └── publish.yml
+        ├── apt       signed repository on gh-pages
+        ├── homebrew  formula in homebrew-tap
+        ├── aur       PKGBUILD + PKGBUILD.SRCINFO (optional push)
+        ├── docker    linux/amd64 + linux/arm64 on GHCR
+        └── crates    cargo publish (optional)
+```
 
-## 5. Release checklist
+The publish job is a reusable workflow (`workflow_call`) and can be run
+manually with `gh workflow run publish.yml -f version=0.2.1`.
 
-1. `cargo fmt --check && cargo clippy --all-targets -- -D warnings`
-2. `cargo test && cargo audit && cargo machete`
-3. Update `CHANGELOG.md` / release notes.
-4. Bump `Cargo.toml` version and run `cargo check` (updates `Cargo.lock`).
-5. Commit, `./scripts/release.sh patch|minor|major`.
-6. Watch the CI build job; verify every artifact + package is attached.
-7. Download and verify `SHA256SUMS` (`sha256sum -c SHA256SUMS`).
-8. Test `install.sh` on a clean macOS/Linux machine or container.
-9. Install the `.deb`/`.rpm`/`.apk` in the matching container.
-10. Announce (release notes, Homebrew/AUR if set up).
+## Verification
 
-## 6. Remaining work (prioritized)
+Performed for v0.2.1:
+
+1. **Checksums**: all release assets pass `sha256sum -c SHA256SUMS`.
+2. **APT**: Debian container, signature verified with the published key,
+   `apt install password-cracking` → `0.2.1`.
+3. **Homebrew**: `brew install`, `brew test`, completions and man page, real
+   fixture crack on macOS arm64.
+4. **Docker**: `docker run … --version` for `0.2.1` and `latest`; multi-arch
+   manifest lists `linux/amd64` and `linux/arm64`.
+5. **Installer**: `install.sh --prefix …` verifies SHA-256 and installs 0.2.1.
+6. **AUR**: `PKGBUILD` passes `bash -n`; checksums match the release tarballs.
+7. **Manifests**: Homebrew and AUR hashes match the published assets.
+
+Automated container tests are not yet part of CI; see
+[Remaining work](#remaining-work).
+
+## Release checklist
+
+1. `cargo fmt --all -- --check`
+2. `cargo clippy --all-targets -- -D warnings`
+3. `cargo test` (25 unit + 19 e2e at the time of writing)
+4. `cargo audit && cargo machete`
+5. `bash scripts/test-package-manifests.sh`
+6. `cargo publish --dry-run --allow-dirty`
+7. Update both English and Chinese docs for user-visible changes.
+8. Bump `Cargo.toml`; run `cargo check` to update `Cargo.lock`.
+9. Commit and run `./scripts/release.sh patch|minor|major|vX.Y.Z`.
+10. Watch the tag CI run; verify 8 build jobs, the release assets and the
+    publish jobs.
+11. Run the verification steps above.
+12. Announce the release.
+
+## Remaining work
 
 | Priority | Task | Notes |
 |----------|------|-------|
-| P0 | Container smoke tests in CI | catches glibc/musl and packaging mistakes |
-| P1 | Sign artifacts | `actions/attest-build-provenance` (SLSA) and/or Sigstore `cosign` |
-| P1 | APT repository verification job | install into a container on every release (currently manual) |
-| P2 | AUR submission | the PKGBUILD is generated and attached; submit once, then set `AUR_SSH_PRIVATE_KEY` |
-| P2 | crates.io token | set `CARGO_REGISTRY_TOKEN` to enable `cargo install password-cracking` |
-| P3 | Reproducible builds | pin toolchain, `SOURCE_DATE_EPOCH`, verify byte-identical artifacts |
-| P3 | Reduce binary size | `opt-level="z"` variant? Keep `3` for cracking speed; musl binary is ~1.1 MB stripped |
+| P0 | Container smoke tests in CI | install `.deb`/`.rpm`/`.apk` on every release |
+| P1 | Artifact signing / provenance | `actions/attest-build-provenance` or Sigstore |
+| P1 | APT verification job | run the signed-repo install in CI |
+| P2 | AUR submission | `PKGBUILD` is generated; submit once, then set `AUR_SSH_PRIVATE_KEY` |
+| P2 | crates.io token | set `CARGO_REGISTRY_TOKEN` |
+| P3 | Reproducible builds | pin the toolchain, `SOURCE_DATE_EPOCH` |
+| P3 | Reduce binary size | keep `opt-level=3`; static musl binary is ~1.1 MB |
 
-Completed: Homebrew tap, AUR PKGBUILD generation, GHCR multi-arch image, APT
-repository on GitHub Pages, crates.io metadata and publish job, per-format
-ARMv7 architecture mapping (deb `armhf`, rpm `armv7hl`, apk `armv7`).
+Completed: 8-target matrix, musl packages, Homebrew tap, APT repository on
+GitHub Pages, GHCR multi-arch image, crates.io metadata and publish job,
+per-format ARMv7 architecture mapping, bilingual documentation.
 
-## 7. Alternative: `cargo-dist`
+## Notes and risks
 
-`cargo-dist` can generate most of the release workflow (archives, shell
-installer, Homebrew formula, npm/pip wrappers, provenance) from
-`[workspace.metadata.dist]`. Trade-offs:
+- `cross` needs Docker on the runner; GitHub-hosted Ubuntu runners provide it.
+  The version is pinned by `taiki-e/install-action`.
+- armv7 builds assume hardware floating point (Raspberry Pi 2+). Raspberry Pi
+  Zero/1 (armv6) is not covered.
+- GNU Linux binaries require glibc >= the runner's glibc (currently 2.39). The
+  musl builds avoid this.
+- The nfpm version is passed without the `v` prefix; the workflow strips it.
+- APT metadata is signed (`InRelease`, `Release.gpg`). Individual `.deb`/`.rpm`
+  files are not signed; repository metadata is the trust anchor.
+- The GitHub Release is the only source of binaries. Publishing jobs download
+  from it, so re-running a publish never rebuilds.
+- GitHub Pages serves the APT repository; a build usually completes in under a
+  minute.
 
-- **Pro**: less bespoke YAML, consistent installers, easy Homebrew.
-- **Con**: no native deb/rpm/apk support (would still need nfpm), and it
-  rewrites `.github/workflows/release.yml`, which conflicts with the current
-  combined CI file.
+## Alternative: cargo-dist
 
-Recommendation: keep the current workflow + nfpm for distro packages, and
-optionally add `cargo-dist` later only for the Homebrew formula. Do **not**
-migrate wholesale unless the release workflow is simplified first.
+`cargo-dist` can generate archives, a shell installer, a Homebrew formula and
+provenance from `[workspace.metadata.dist]`.
 
-## 8. Notes and risks
+- **Pros**: less bespoke YAML, consistent installers.
+- **Cons**: no native deb/rpm/apk support (nfpm is still needed), and it
+  rewrites the release workflow.
 
-- `cross` requires Docker on the runner; GitHub-hosted Ubuntu runners provide
-  it. Pin the `cross` version (`taiki-e/install-action` already does).
-- armv7 support assumes the target has hardware floating point (Raspberry Pi
-  2+). Raspberry Pi Zero/1 (armv6) is not covered; add
-  `arm-unknown-linux-gnueabihf` + `arm-unknown-linux-musleabihf` if needed.
-- The gnu Linux binaries require glibc >= the runner's (currently Ubuntu
-  latest, glibc 2.39). The musl build avoids this entirely.
-- `version` in nfpm is passed without the `v` prefix; the workflow strips it.
-- `.deb` post-install scripts are not needed (single static binary).
-- Package signing (dpkg-sig/rpm signing) is not configured; add a GPG key
-  secret to the release job if distributing through repositories.
+Recommendation: keep the current workflow and nfpm. Revisit `cargo-dist` only
+if the release workflow needs to be simplified or a Homebrew-core formula is
+required.

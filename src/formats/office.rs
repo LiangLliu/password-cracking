@@ -68,11 +68,13 @@ impl OfficeVerifier {
     /// 1. H = hash(salt + password_utf16le)
     /// 2. For i in 0..spin_count: H = hash(i_as_4_bytes_le + H)
     fn derive_hash(&self, password: &[u8]) -> Vec<u8> {
-        let mut pwd_utf16 = Vec::with_capacity(password.len() * 2);
-        for &byte in password {
-            pwd_utf16.push(byte);
-            pwd_utf16.push(0);
-        }
+        // Office encodes the password as UTF-16LE. Candidates are byte strings;
+        // decode valid UTF-8 so non-ASCII (e.g. Chinese) passwords work, and
+        // fall back to byte-wise encoding for arbitrary byte sequences.
+        let pwd_utf16: Vec<u8> = match std::str::from_utf8(password) {
+            Ok(text) => text.encode_utf16().flat_map(u16::to_le_bytes).collect(),
+            Err(_) => password.iter().flat_map(|&b| [b, 0]).collect(),
+        };
 
         // Step 1: H = hash(salt + password)
         let mut input = Vec::with_capacity(self.enc.salt.len() + pwd_utf16.len());

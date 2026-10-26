@@ -269,6 +269,10 @@ fn parse_encryption(data: &[u8]) -> Result<PdfEncryption> {
     let permissions = parse_i32(&enc_dict_str, b"/P").unwrap_or(0);
     let owner_hash = parse_hex_string(&enc_dict_str, b"/O").context("Missing /O")?;
     let user_hash = parse_hex_string(&enc_dict_str, b"/U").context("Missing /U")?;
+    // R>=4 mixes this flag into the file key. The default is true.
+    let encrypt_metadata = parse_dict_value(&enc_dict_str, b"/EncryptMetadata")
+        .map(|v| !v.trim().eq_ignore_ascii_case("false"))
+        .unwrap_or(true);
 
     // For V>=5, the validation salts live at bytes 32..40 of U and O.
     // U/O = [32 bytes hash][8 bytes validation salt][8 bytes key salt]
@@ -289,7 +293,7 @@ fn parse_encryption(data: &[u8]) -> Result<PdfEncryption> {
         user_hash,
         permissions,
         id0: id_array,
-        encrypt_metadata: true, // default
+        encrypt_metadata,
         u_validation_salt,
         o_validation_salt,
     })

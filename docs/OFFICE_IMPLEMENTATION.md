@@ -1,135 +1,145 @@
-# Office Implementation Details
+# Office Internals
 
-## Encryption Methods
+**English** | [中文](OFFICE_IMPLEMENTATION.zh-CN.md)
 
-Office documents use two container formats:
+`src/formats/office.rs` verifies passwords for Agile-encrypted Office files
+(Office 2010+). Legacy CryptoAPI/ECMA-376 standard encryption is not supported.
+
+## Containers
 
 | Container | Extensions | Encryption |
-|-----------|-----------|------------|
-| OLE2 (CFB) | `.doc`, `.xls`, `.ppt` (old) | ECMA-376 or Agile |
-| OOXML (ZIP) | `.docx`, `.xlsx`, `.pptx` (2007+) | Agile (when encrypted) |
+|-----------|------------|------------|
+| OLE2 (CFB) | `.doc`, `.xls`, `.ppt` (old) | Agile or legacy |
+| OOXML (ZIP) | `.docx`, `.xlsx`, `.pptx` (2007+) | Agile, wrapped in OLE2 when encrypted |
 
-When an OOXML file is encrypted, it's wrapped in an OLE2 compound file containing:
-- `EncryptionInfo` — encryption parameters
-- `EncryptedPackage` — the encrypted OOXML content
+An encrypted OOXML file is an OLE2 compound file containing:
 
-### Agile Encryption (v4.0, XML-based)
+- `EncryptionInfo` — version header plus Agile XML
+- `EncryptedPackage` — the encrypted OOXML ZIP
 
-Used by Office 2010+. This is the only version currently supported.
+The verifier only needs `EncryptionInfo`; it never decrypts the package.
 
-Parameters (from the `EncryptionInfo` XML):
-- `spinCount`: number of hash iterations (typically 100,000)
-- `keyBits`: AES key size (128/192/256, typically 256)
-- `hashAlgorithm`: SHA-1/256/384/512 (typically SHA-512)
-- `saltValue`: random salt (base64-encoded)
-- `encryptedVerifierHashInput`: encrypted verifier input
-- `encryptedVerifierHashValue`: encrypted verifier hash
+## Agile encryption parameters
 
-## Password Verification Algorithm
+The XML lives at byte 8 of the `EncryptionInfo` stream:
 
-Reference: [MS-OFFCRYPTO 2.3.7.1](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-offcrypto/)
-
-### Step 1: Derive Iterated Hash
-
+```text
+bytes 0-1: version (4 = Agile)
+bytes 2-3: reserved
+bytes 4-7: reserved/flags
+bytes 8+ : UTF-8 XML (p:encryption)
 ```
-H = hash(salt + password_utf16le)
+
+Relevant attributes from `p:encryptedKey`:
+
+| Attribute | Meaning |
+|-----------|---------|
+| `spinCount` | hash iterations (typically 100,000) |
+| `keyBits` | AES key size: 128/192/256 |
+| `hashSize` | hash output size in bytes |
+| `blockSize` | AES block size (must be 16) |
+| `hashAlgorithm` | SHA-1/256/384/512 |
+| `saltValue` | base64 salt |
+| `encryptedVerifierHashInput` | base64 encrypted verifier input |
+| `encryptedVerifierHashValue` | base64 encrypted verifier hash |
+
+`spinCount` is capped at 5,000,000. Real files use 100,000; a corrupt or
+malicious file requesting billions of iterations is rejected instead of
+hanging the cracker.
+
+## Password verification
+
+Reference: [MS-OFFCRYPTO 2.3.7.1](https://learn.microsoft.com/en-us/openspecs/office_file_formats/ms-offcrypto/).
+
+### 1. Iterated hash
+
+```text
+H = hash(salt || password_utf16le)
 for i in 0..spinCount:
-    H = hash(i_as_4_bytes_le + H)
+    H = hash(i_as_4_bytes_le || H)
 ```
 
-Note the order: `salt + password` (not `password + salt`), and `i + H` (not `H + i`).
+The order matters: salt first, then password; counter first, then the previous
+hash. Reversing either produces a valid-looking implementation that never
+matches.
 
-### Step 2: Derive Per-Purpose Keys
+### 2. Per-purpose keys
 
-Two separate keys are derived using block key constants:
-
-```
-key1 = hash(H + blkKey_VerifierHashInput)[:keyBits/8]
-key2 = hash(H + blkKey_EncryptedVerifierHashValue)[:keyBits/8]
-```
-
-Block key constants:
-```rust
-const BLK_KEY_VERIFIER_HASH_INPUT: [u8; 8] = [0xFE, 0xA7, 0xD2, 0x76, 0x3B, 0x4B, 0x9E, 0x79];
-const BLK_KEY_ENCRYPTED_VERIFIER_HASH_VALUE: [u8; 8] = [0xD7, 0xAA, 0x0F, 0x6D, 0x30, 0x61, 0x34, 0x4E];
+```text
+key1 = hash(H || blkKey_VerifierHashInput)[:keyBits/8]
+key2 = hash(H || blkKey_EncryptedVerifierHashValue)[:keyBits/8]
 ```
 
-### Step 3: Decrypt and Compare
-
-1. `verifier_input = AES_CBC_decrypt(key1, salt, encryptedVerifierHashInput)`
-2. `computed_hash = hash(verifier_input)`
-3. `stored_hash = AES_CBC_decrypt(key2, salt, encryptedVerifierHashValue)`
-4. Password is correct if `computed_hash[:hashSize] == stored_hash[:hashSize]`
-
-**Important**: The IV for AES-CBC is the salt value itself (not zeros), and there is no PKCS#7 padding — the encrypted data is already block-aligned.
-
-## OLE2 Parsing
-
-The `cfb` crate reads OLE2 compound files:
+Block-key constants:
 
 ```rust
-let file = File::open(path)?;
-let mut comp = cfb::CompoundFile::open(file)?;
-let mut stream = comp.open_stream("EncryptionInfo")?;
-std::io::Read::read_to_end(&mut stream, &mut enc_info)?;
+const BLK_KEY_VERIFIER_HASH_INPUT: [u8; 8] =
+    [0xFE, 0xA7, 0xD2, 0x76, 0x3B, 0x4B, 0x9E, 0x79];
+const BLK_KEY_ENCRYPTED_VERIFIER_HASH_VALUE: [u8; 8] =
+    [0xD7, 0xAA, 0x0F, 0x6D, 0x30, 0x61, 0x34, 0x4E];
 ```
 
-The `EncryptionInfo` stream has an 8-byte binary header followed by XML:
-- Bytes 0-1: version (4 for Agile)
-- Bytes 2-3: format version (4 for Agile)
-- Bytes 4-7: XML length (unused, XML follows directly)
-- Bytes 8+: XML content
+### 3. Decrypt and compare
 
-## XML Parsing
-
-A lightweight attribute extractor is used (no full XML parser):
-
-```rust
-fn extract_attr(xml: &str, attr: &str) -> Result<String> {
-    let pattern = format!("{attr}=\"");
-    // find attr="value" pattern
-}
+```text
+verifier_input = AES-CBC-Decrypt(key1, iv=salt, encryptedVerifierHashInput)
+computed       = hash(verifier_input)
+stored         = AES-CBC-Decrypt(key2, iv=salt, encryptedVerifierHashValue)
+match          = computed[:hashSize] == stored[:hashSize]
 ```
 
-This works because the Agile Encryption XML has a fixed, well-known structure with no nested elements or namespaces that would require a real XML parser.
+The IV is the salt, not zero. The encrypted data is block-aligned; no PKCS#7
+padding is applied.
 
-## AES-CBC Decryption
+## OLE2 and XML parsing
 
-Raw AES-CBC without padding removal (the encrypted data is already block-aligned):
+- `cfb` opens the compound file and reads the `EncryptionInfo` stream.
+- A small attribute extractor finds `name="value"` pairs in the fixed Agile
+  XML. A full XML parser is unnecessary because the schema is flat and
+  namespace-free in the encrypted-key element.
+- Base64 values are decoded with the `base64` crate.
 
-```rust
-fn aes_cbc_decrypt_raw(key: &[u8], iv: &[u8], ciphertext: &[u8]) -> Option<Vec<u8>> {
-    // ECB decrypt each block, then XOR with previous ciphertext block (or IV for first)
-    for chunk in ciphertext.chunks(16) {
-        let mut block = chunk;
-        cipher.decrypt_block(&mut block);  // ECB
-        for i in 0..16 { block[i] ^= prev[i]; }  // CBC XOR
-        prev = saved_ciphertext;
-    }
-}
-```
+## AES-CBC
 
-Supports AES-128, AES-192, and AES-256 via a macro that generates type-specific code for each key size.
+`aes_cbc_decrypt_raw` performs AES decryption per block (ECB) and XORs with the
+previous ciphertext block, using the salt as the IV for the first block. AES-128,
+AES-192 and AES-256 are selected by key length.
 
 ## Performance
 
-Office Agile encryption is slow because each password verification requires:
-- 100,000 SHA-512 hash iterations
-- 2 AES-256-CBC decryptions
-- 1 SHA-512 hash
+Agile verification is intentionally expensive:
 
-On a 10-core CPU: ~400 passwords/sec. This is inherent to the algorithm — the 100K iterations are a deliberate key stretching measure to slow down brute-force attacks.
+- ~100,000 hash iterations (SHA-512 in typical files)
+- two AES-CBC decryptions
+- one hash of the verifier input
 
-**Recommendation**: Always use dictionary or hybrid attacks for Office files. Brute-force is only practical for very short numeric PINs.
+Measured throughput: **~585 passwords/sec** on a 10-core M2 Pro (500–800/s
+depending on `spinCount` and hash algorithm). This is why dictionary and hybrid
+attacks are strongly preferred for Office files.
 
 ## Testing
 
-Test files are created with `msoffcrypto-tool`:
+Fixtures are generated with `msoffcrypto-tool`:
 
 ```python
 from msoffcrypto.format.ooxml import OOXMLFile
-officefile = OOXMLFile(f)
-officefile.encrypt("92eo", output)
+
+with open("test.docx", "rb") as f, open("encrypted.docx", "wb") as out:
+    OOXMLFile(f).encrypt("92eo", out)
 ```
 
-This produces OLE2-wrapped encrypted files with Agile AES-256 + SHA-512.
+The resulting files are OLE2-wrapped OOXML with Agile AES-256 and SHA-512.
+
+Fixtures: `test.docx`, `test.xlsx`, `test.pptx` (all password `92eo`).
+
+## Limitations
+
+- **Agile only (v4)**: legacy CryptoAPI/ECMA-376 `.doc`/`.xls`/`.ppt` files
+  are rejected with a clear error.
+- **Non-ASCII passwords**: candidates that are valid UTF-8 are decoded and
+  encoded as UTF-16LE, so Chinese and other Unicode passwords work
+  (`test_unicode.docx` covers this). Candidates that are not valid UTF-8 fall
+  back to byte-wise UTF-16LE encoding.
+- **EncryptedPackage** is not decrypted; the verifier hash is authoritative.
+- Only the password verifier is checked. Integrity of the decrypted package is
+  not validated (and is not needed to recover a password).

@@ -1,325 +1,221 @@
-# 开发规范
+# Development Guide
 
-本文档定义了 Password Cracking 项目的开发规范和最佳实践。
+**English** | [中文](DEVELOPMENT.zh-CN.md)
 
-## 目录
+How to build, test, extend and release `password-cracking`.
 
-1. [环境设置](#环境设置)
-2. [代码风格](#代码风格)
-3. [Git 工作流](#git-工作流)
-4. [测试规范](#测试规范)
-5. [文档规范](#文档规范)
-6. [安全规范](#安全规范)
+## Requirements
 
-## 环境设置
+- Rust **1.88+** (edition 2024, let-chains)
+- `rustfmt` and `clippy` (`rustup component add rustfmt clippy`)
+- Git
+- Optional: `cargo-audit`, `cargo-machete`, Docker (cross builds and packaging)
 
-### 1. 安装开发工具
-
-首次克隆项目后，运行以下命令设置开发环境：
+## Setup
 
 ```bash
-# 安装 Git hooks 和开发工具
-./scripts/install-hooks.sh
+git clone https://github.com/LiangLliu/password-cracking
+cd password-cracking
+./scripts/install-hooks.sh   # optional pre-commit hook
+cargo build --release
+cargo test
 ```
 
-这将安装：
-- **Git pre-commit hook**: 提交前自动检查代码
-- **cargo-machete**: 检查未使用的依赖
-- **cargo-audit**: 安全漏洞审计
+The pre-commit hook runs formatting, clippy, tests, `cargo-audit` and
+`cargo-machete` on staged Rust changes. It uses `git stash --keep-index`; if a
+stash/pop conflict occurs, resolve it and run the checks manually. For
+documentation-only commits, `git commit --no-verify` is acceptable.
 
-### 2. 必需的 Rust 组件
+## Repository layout
 
-确保安装以下 Rust 组件：
+```
+src/
+  main.rs          process entry point, exit codes
+  lib.rs           public modules
+  cli/mod.rs       clap definitions and run()
+  engine/mod.rs    worker pool, adaptive batches, checkpoints
+  formats/         PasswordVerifier: mod.rs, zip.rs, pdf.rs, office.rs
+  generators/      PasswordSource: dictionary, brute_force, mask, rules
+  utils/mod.rs     charsets, formatting, validation
+tests/e2e.rs       end-to-end tests over examples/
+examples/          encrypted fixtures (password: 92eo) + generator
+docs/              bilingual documentation
+packaging/         Homebrew, AUR, APT, nfpm templates
+scripts/           release, install, manifest and APT repo scripts
+```
+
+See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for the detailed module map.
+
+## Commands
 
 ```bash
-rustup component add rustfmt clippy
+cargo build --release                 # optimized binary
+cargo test                            # unit + e2e tests
+cargo test --lib dictionary           # filter by name
+cargo test --test e2e                 # e2e only
+cargo fmt --all -- --check            # formatting
+cargo clippy --all-targets -- -D warnings
+cargo audit                           # RustSec advisories
+cargo machete                         # unused dependencies
+cargo publish --dry-run --allow-dirty # crate package verification
+bash scripts/test-package-manifests.sh
+actionlint .github/workflows/*.yml    # if installed
 ```
 
-## 代码风格
+`./scripts/fmt.sh` runs formatting + clippy (+ tests unless `--skip-tests`);
+`./scripts/fmt.sh --check` is a read-only check.
 
-### 1. 格式化
+## Architecture invariants
 
-我们使用 `rustfmt` 进行代码格式化。配置文件位于项目根目录的 `rustfmt.toml`（如需自定义）。
+These are not style preferences; changing them can break correctness or
+performance.
 
-**手动格式化：**
-```bash
-./scripts/fmt.sh
-```
+1. **FIFO batch ordering.** Workers pull from a bounded FIFO channel. The
+   checkpoint frontier is the start of the earliest unfinished batch. A LIFO
+   scheduler (for example Rayon's work-stealing queue) would leave early
+   batches pending while later ones complete, making the frontier useless.
+2. **Verified frontier, not generated frontier.** The generator records the
+   source position at the start of every batch. Only fully verified batches
+   advance the checkpoint. Never write the generator's current position: it may
+   be far ahead of what workers have checked.
+3. **Adaptive batch size.** The shared target starts at 32 and doubles/halves
+   based on batch duration, aiming for ~250 ms and capping at 4096. Slow
+   verifiers (Office) need small batches for timely checkpoints; fast ones
+   (ZIP) benefit from larger batches.
+4. **Streaming sources.** `PasswordSource::fill_batch(batch, max)` may hold only
+   the current batch. Do not collect the whole keyspace.
+5. **Two-phase verification only when it pays.** `quick_check` is a real filter
+   only for ZIP ZipCrypto. PDF and Office return `true` so the engine runs
+   `verify` exactly once.
 
-**仅检查格式：**
-```bash
-./scripts/fmt.sh --check
-```
+## Adding a format
 
-### 2. 代码质量
-
-使用 `clippy` 进行代码质量检查：
-
-```bash
-cargo clippy -- -D warnings
-```
-
-或使用脚本自动修复：
-```bash
-./scripts/fmt.sh --fix
-```
-
-### 3. 命名规范
-
-遵循 Rust 官方命名约定：
-
-- **模块名**: `snake_case`
-- **类型名**: `PascalCase`
-- **函数名**: `snake_case`
-- **常量**: `SCREAMING_SNAKE_CASE`
-- **变量名**: `snake_case`
-
-示例：
-```rust
-mod password_generator;
-
-const MAX_PASSWORD_LENGTH: usize = 128;
-
-struct PasswordCracker {
-    thread_count: usize,
-}
-
-impl PasswordCracker {
-    fn new() -> Self { ... }
-    fn crack_password(&self, hash: &str) -> Option<String> { ... }
-}
-```
-
-### 4. 代码组织
-
-- 每个模块应有清晰的职责
-- 使用 `mod.rs` 导出公共 API
-- 将测试放在模块的 `#[cfg(test)]` 块中
-- 保持函数简短，一般不超过 50 行
-
-## Git 工作流
-
-### 1. 提交规范
-
-使用语义化提交信息：
-
-```
-<type>(<scope>): <subject>
-
-<body>
-
-<footer>
-```
-
-**类型（type）：**
-- `feat`: 新功能
-- `fix`: 修复 bug
-- `docs`: 文档更新
-- `style`: 格式调整（不影响代码运行）
-- `refactor`: 重构（既不是新功能也不是修复 bug）
-- `perf`: 性能优化
-- `test`: 添加或修改测试
-- `chore`: 构建过程或辅助工具的变动
-- `ci`: CI/CD 相关的变更
-
-**示例：**
-```bash
-git commit -m "feat(generator): add custom charset support for brute force"
-git commit -m "fix(pdf): handle encrypted PDF v1.7 correctly"
-git commit -m "docs: update installation instructions"
-```
-
-### 2. 分支管理
-
-- `main/master`: 主分支，保持稳定
-- `develop`: 开发分支（可选）
-- `feature/*`: 功能分支
-- `fix/*`: 修复分支
-- `release/*`: 发布分支
-
-### 3. Pull Request
-
-提交 PR 前确保：
-- [ ] 所有测试通过
-- [ ] 代码已格式化
-- [ ] Clippy 无警告
-- [ ] 添加了必要的测试
-- [ ] 更新了相关文档
-
-## 测试规范
-
-### 1. 单元测试
-
-每个模块都应包含单元测试：
+1. Implement `PasswordVerifier` in `src/formats/`:
 
 ```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_password_generation() {
-        // 测试代码
-    }
+impl PasswordVerifier for MyVerifier {
+    fn quick_check(&self, password: &[u8]) -> bool { /* cheap filter or true */ }
+    fn verify(&self, password: &[u8]) -> bool { /* authoritative check */ }
+    fn format_name(&self) -> &'static str { "MyFormat" }
+    fn encryption_info(&self) -> &str { "..." }
 }
 ```
 
-### 2. 集成测试
+2. Add magic-byte detection and the constructor to `src/formats/mod.rs`.
+3. Add a fixture to `examples/` (password `92eo` unless there is a reason).
+4. Add an e2e test in `tests/e2e.rs`.
+5. Update `README.md`, `USER_GUIDE.md` and their Chinese versions.
 
-在 `tests/` 目录创建集成测试：
+## Adding a generator
+
+1. Implement `PasswordSource`:
 
 ```rust
-// tests/integration_test.rs
-use password_cracking::PasswordCracker;
-
-#[test]
-fn test_end_to_end_cracking() {
-    // 端到端测试
+impl PasswordSource for MySource {
+    fn fill_batch(&mut self, batch: &mut Vec<Box<[u8]>>, max: usize) -> bool;
+    fn estimated_total(&self) -> Option<u64>;
+    fn checkpoint(&self) -> Option<String>;       // None if not resumable
+    fn restore(&mut self, state: &str) -> Result<()>;
+    fn name(&self) -> &'static str;
 }
 ```
 
-### 3. 测试覆盖率
+2. Add a variant to `GeneratorMode` and the factory in `src/generators/mod.rs`.
+3. Add a CLI subcommand or flag in `src/cli/mod.rs`.
+4. Add unit tests for ordering, bounds, checkpoint round-trips and edge cases.
+5. Add an e2e test with a fixture.
 
-努力保持高测试覆盖率：
-- 核心功能: > 90%
-- 总体覆盖率: > 80%
+Checkpoint format is free-form as long as `checkpoint()` and `restore()` agree.
+The engine stores `source_name`, the state and the canonical target path.
 
-运行覆盖率报告：
-```bash
-cargo install cargo-tarpaulin
-cargo tarpaulin --out html
-```
+## Testing
 
-## 文档规范
-
-### 1. 代码文档
-
-为所有公共 API 添加文档注释：
-
-```rust
-/// 生成指定长度的密码组合
-///
-/// # 参数
-///
-/// * `length` - 密码长度
-/// * `charset` - 使用的字符集
-///
-/// # 返回值
-///
-/// 返回一个密码生成器迭代器
-///
-/// # 示例
-///
-/// ```
-/// let generator = create_password_generator(8, "abc123");
-/// ```
-pub fn create_password_generator(length: usize, charset: &str) -> impl Iterator<Item = String> {
-    // 实现
-}
-```
-
-### 2. 模块文档
-
-在每个模块顶部添加模块级文档：
-
-```rust
-//! # 密码生成器模块
-//!
-//! 该模块提供多种密码生成策略：
-//! - 暴力破解生成器
-//! - 字典攻击生成器
-//! - 混合模式生成器
-```
-
-### 3. README 和其他文档
-
-- 保持 README.md 更新
-- 在 `docs/` 目录添加详细文档
-- 使用 Markdown 格式
-
-## 安全规范
-
-### 1. 依赖管理
-
-- 定期运行 `cargo audit` 检查安全漏洞
-- 及时更新有安全问题的依赖
-- 审查新添加的依赖
-
-### 2. 敏感信息
-
-- 不要在代码中硬编码密码、密钥或其他敏感信息
-- 使用环境变量或配置文件（并添加到 `.gitignore`）
-- 示例配置使用 `.example` 后缀
-
-### 3. 错误处理
-
-- 不要在错误信息中泄露敏感信息
-- 使用 `anyhow` 或 `thiserror` 进行错误处理
-- 记录足够的信息用于调试，但不包含敏感数据
-
-## 持续改进
-
-### 1. 代码审查
-
-- 所有代码必须经过审查才能合并
-- 使用 GitHub PR 进行代码审查
-- 关注代码质量、性能和安全性
-
-### 2. 性能优化
-
-- 使用 `cargo bench` 进行性能测试
-- 在优化前先进行基准测试
-- 记录性能改进
-
-### 3. 反馈和建议
-
-欢迎提出改进建议：
-- 通过 Issue 报告问题
-- 通过 PR 贡献代码
-- 参与讨论和设计决策
-
-## 快速参考
-
-### 常用命令
+- **Unit tests** live next to the code in `#[cfg(test)] mod tests`.
+- **End-to-end tests** live in `tests/e2e.rs` and drive the public API over the
+  fixtures in `examples/`.
+- Every fixture uses the password **`92eo`** except PDF owner-only fixtures,
+  which require `VerifyOptions { try_pdf_owner: true }` (CLI: `--pdf-owner`).
+- Test helper: `wordlist_with_password()` writes a temporary wordlist.
+- Use `tempfile` for any on-disk test input.
 
 ```bash
-# 格式化和检查
-./scripts/fmt.sh              # 格式化代码
-./scripts/fmt.sh --check      # 只检查不修改
-./scripts/fmt.sh --fix        # 自动修复问题
-
-# 测试
-cargo test                    # 运行所有测试
-cargo test --doc             # 运行文档测试
-cargo bench                  # 运行基准测试
-
-# 构建
-cargo build                  # 调试构建
-cargo build --release        # 发布构建
-
-# 发布
-./scripts/release.sh patch   # 发布补丁版本
-./scripts/release.sh minor   # 发布次版本
-./scripts/release.sh major   # 发布主版本
+cargo test
+cargo test --test e2e
+cargo test --lib generators::mask
 ```
 
-### 故障排除
+## Code style
 
-1. **Git hook 没有运行**
-   ```bash
-   ./scripts/install-hooks.sh
-   ```
+- Run `cargo fmt` and `cargo clippy --all-targets -- -D warnings` before
+  committing.
+- Naming follows Rust conventions: `snake_case` functions/modules,
+  `PascalCase` types, `SCREAMING_SNAKE_CASE` constants.
+- Prefer `anyhow::Result` in application code and `.context(...)` for
+  user-facing errors.
+- Keep public items documented with `///` where the behaviour is not obvious.
+- Do not swallow errors silently. `let _ =` is only acceptable for cleanup
+  operations where failure is harmless.
+- Keep hot loops allocation-free. Reuse buffers; avoid per-candidate `Vec`
+  allocations unless the API requires it.
 
-2. **跳过 Git hook（紧急情况）**
-   ```bash
-   git commit --no-verify
-   ```
+## Git workflow
 
-3. **清理构建缓存**
-   ```bash
-   cargo clean
-   ```
+Use semantic commit messages:
 
----
+```
+feat(formats): support AES-256 R6 PDFs
+fix(engine): keep the checkpoint frontier on FIFO order
+docs: rewrite the bilingual user guide
+```
 
-遵循这些规范将帮助我们维护高质量、一致的代码库。如有疑问，请查阅 Rust 官方文档或在项目 Issue 中讨论。
+Common types: `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `build`,
+`ci`, `chore`.
+
+Before a PR:
+
+- [ ] `cargo fmt --all -- --check`
+- [ ] `cargo clippy --all-targets -- -D warnings`
+- [ ] `cargo test`
+- [ ] new behaviour has tests
+- [ ] English and Chinese docs are both updated
+- [ ] `cargo audit` / `cargo machete` are clean
+
+## Release process
+
+1. Update the version in `Cargo.toml` (and `Cargo.lock` via `cargo check`).
+2. Update `CHANGELOG`-style notes in the release draft or commit message.
+3. Run the full local check suite.
+4. Commit the version bump.
+5. `./scripts/release.sh patch|minor|major|vX.Y.Z` — creates and pushes the tag.
+6. CI builds 8 targets, creates the GitHub Release, then runs `publish.yml`.
+7. Verify:
+   - `SHA256SUMS` covers every artifact;
+   - Homebrew, APT and Docker install the new version;
+   - the AUR artifacts and manifests are attached.
+8. Announce the release.
+
+The publish workflow can be re-run without rebuilding:
+
+```bash
+gh workflow run publish.yml -f version=0.2.1
+```
+
+## Documentation policy
+
+- Every maintained document has an English `NAME.md` and a Chinese
+  `NAME.zh-CN.md`.
+- Both versions must be updated in the same change. Do not leave one language
+  describing an older CLI or a removed platform.
+- The README pair (`README.md`, `README_CN.md`) follows the same rule.
+- `docs/superpowers/` is an archive of earlier design work and is intentionally
+  not translated or kept up to date.
+- Prefer concrete commands and measured numbers over marketing language.
+
+## Security
+
+- This project is for authorized password recovery and testing only.
+- Never commit credentials, private keys, tokens or real user data.
+- CI secrets used by publishing: `APT_GPG_PRIVATE_KEY`,
+  `HOMEBREW_TAP_DEPLOY_KEY`, optional `AUR_SSH_PRIVATE_KEY`,
+  `CARGO_REGISTRY_TOKEN`.
+- Report vulnerabilities privately; do not open a public issue with an exploit.
