@@ -1,142 +1,115 @@
-# Development Guide
+# Development
 
 **English** | [中文](DEVELOPMENT.zh-CN.md)
 
-How to build, test, extend and release `password-cracking`.
-
-## Requirements
-
-- Rust **1.88+** (edition 2024, let-chains)
-- `rustfmt` and `clippy` (`rustup component add rustfmt clippy`)
-- Git
-- Optional: `cargo-audit`, `cargo-machete`, Docker (cross builds and packaging)
-
 ## Setup
 
+You need Rust 1.88 or newer, `rustfmt` and `clippy`:
+
 ```bash
+rustup component add rustfmt clippy
 git clone https://github.com/LiangLliu/password-cracking
 cd password-cracking
-./scripts/install-hooks.sh   # optional pre-commit hook
 cargo build --release
 cargo test
 ```
 
-The pre-commit hook runs formatting, clippy, tests, `cargo-audit` and
-`cargo-machete` on staged Rust changes. It uses `git stash --keep-index`; if a
-stash/pop conflict occurs, resolve it and run the checks manually. For
-documentation-only commits, `git commit --no-verify` is acceptable.
+`./scripts/install-hooks.sh` installs an optional pre-commit hook for staged
+Rust changes. Use `git commit --no-verify` for documentation-only commits if
+the hook conflicts with a stash.
 
-## Repository layout
+## Layout
 
-```
+```text
 src/
-  main.rs          process entry point, exit codes
-  lib.rs           public modules
+  main.rs          entry point and exit codes
   cli/mod.rs       clap definitions and run()
-  engine/mod.rs    worker pool, adaptive batches, checkpoints
-  formats/         PasswordVerifier: mod.rs, zip.rs, pdf.rs, office.rs
-  generators/      PasswordSource: dictionary, brute_force, mask, rules
-  utils/mod.rs     charsets, formatting, validation
+  engine/mod.rs    FIFO worker pool, adaptive batches, checkpoints
+  formats/         ZIP, PDF and Office verifiers
+  generators/      dictionary, brute-force, mask and hybrid sources
+  utils/           charsets and formatting
 tests/e2e.rs       end-to-end tests over examples/
-examples/          encrypted fixtures (password: 92eo) + generator
-docs/              bilingual documentation
-packaging/         Homebrew, AUR, APT, nfpm templates
-scripts/           release, install, manifest and APT repo scripts
+examples/          encrypted fixtures and the Python generator
+docs/              usage and development guides
+packaging/         Homebrew, AUR, APT and nfpm templates
+scripts/           release, install, manifest and APT helpers
 ```
 
-See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for the detailed module map.
-
-## Commands
+## Checks
 
 ```bash
-cargo build --release                 # optimized binary
-cargo test                            # unit + e2e tests
-cargo test --lib dictionary           # filter by name
-cargo test --test e2e                 # e2e only
-cargo fmt --all -- --check            # formatting
+cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
-cargo audit                           # RustSec advisories
-cargo machete                         # unused dependencies
-cargo publish --dry-run --allow-dirty # crate package verification
+cargo test
+cargo audit
+cargo machete
 bash scripts/test-package-manifests.sh
-actionlint .github/workflows/*.yml    # if installed
+cargo publish --dry-run --allow-dirty
 ```
 
-`./scripts/fmt.sh` runs formatting + clippy (+ tests unless `--skip-tests`);
-`./scripts/fmt.sh --check` is a read-only check.
+`./scripts/fmt.sh` runs formatting, clippy and tests. Add `--check` for a
+read-only pass.
 
-## Architecture invariants
+## Architecture
 
-These are not style preferences; changing them can break correctness or
-performance.
+- `PasswordSource` produces candidates. `fill_batch` returns at most one batch
+  and never materializes the full keyspace.
+- `PasswordVerifier` checks a candidate. `quick_check` is a cheap filter, and
+  `verify` makes the final decision.
+- A generator thread sends batches through a bounded FIFO channel to a fixed
+  worker pool. FIFO order lets the checkpoint store the start of the earliest
+  unfinished batch.
+- The engine writes a checkpoint only after a batch finishes. The saved value is
+  the verified frontier, not the generator's current position.
+- Batch size starts at 32, adjusts toward 250 ms of work, and caps at 4096.
+- `quick_check` filters only ZIP ZipCrypto. PDF and Office return `true` so the
+  engine does not repeat an expensive verification.
 
-1. **FIFO batch ordering.** Workers pull from a bounded FIFO channel. The
-   checkpoint frontier is the start of the earliest unfinished batch. A LIFO
-   scheduler (for example Rayon's work-stealing queue) would leave early
-   batches pending while later ones complete, making the frontier useless.
-2. **Verified frontier, not generated frontier.** The generator records the
-   source position at the start of every batch. Only fully verified batches
-   advance the checkpoint. Never write the generator's current position: it may
-   be far ahead of what workers have checked.
-3. **Adaptive batch size.** The shared target starts at 32 and doubles/halves
-   based on batch duration, aiming for ~250 ms and capping at 4096. Slow
-   verifiers (Office) need small batches for timely checkpoints; fast ones
-   (ZIP) benefit from larger batches.
-4. **Streaming sources.** `PasswordSource::fill_batch(batch, max)` may hold only
-   the current batch. Do not collect the whole keyspace.
-5. **Two-phase verification only when it pays.** `quick_check` is a real filter
-   only for ZIP ZipCrypto. PDF and Office return `true` so the engine runs
-   `verify` exactly once.
+## Format verifiers
+
+- ZIP: reads every encrypted entry. ZipCrypto uses the 12-byte header check;
+  AES uses the `zip` crate. A password must open all encrypted entries.
+- PDF: parses the trailer, `/Encrypt` dictionary and `/ID`, then checks the
+  `/U` hash. `--pdf-owner` also checks `/O` and takes about three times as long.
+- Office: reads the Agile `EncryptionInfo` stream from the OLE2 container and
+  runs the iterated hash check. It encodes candidates as UTF-16LE, so Unicode
+  passwords work. The verifier rejects legacy CryptoAPI/ECMA-376 files.
 
 ## Adding a format
 
-1. Implement `PasswordVerifier` in `src/formats/`:
+1. Implement `PasswordVerifier` in `src/formats/`.
+2. Add magic-byte detection and construction in `src/formats/mod.rs`.
+3. Add a fixture to `examples/` and an e2e test to `tests/e2e.rs`.
+4. Update the usage guide and both language versions.
 
 ```rust
 impl PasswordVerifier for MyVerifier {
-    fn quick_check(&self, password: &[u8]) -> bool { /* cheap filter or true */ }
-    fn verify(&self, password: &[u8]) -> bool { /* authoritative check */ }
+    fn quick_check(&self, password: &[u8]) -> bool { true }
+    fn verify(&self, password: &[u8]) -> bool { /* final check */ }
     fn format_name(&self) -> &'static str { "MyFormat" }
     fn encryption_info(&self) -> &str { "..." }
 }
 ```
 
-2. Add magic-byte detection and the constructor to `src/formats/mod.rs`.
-3. Add a fixture to `examples/` (password `92eo` unless there is a reason).
-4. Add an e2e test in `tests/e2e.rs`.
-5. Update `README.md`, `USER_GUIDE.md` and their Chinese versions.
-
 ## Adding a generator
 
-1. Implement `PasswordSource`:
+1. Implement `PasswordSource`.
+2. Add a `GeneratorMode` variant and a factory arm in `src/generators/mod.rs`.
+3. Add the CLI subcommand or flag in `src/cli/mod.rs`.
+4. Add unit tests for ordering, bounds and checkpoint round-trips.
+5. Add an e2e test.
 
-```rust
-impl PasswordSource for MySource {
-    fn fill_batch(&mut self, batch: &mut Vec<Box<[u8]>>, max: usize) -> bool;
-    fn estimated_total(&self) -> Option<u64>;
-    fn checkpoint(&self) -> Option<String>;       // None if not resumable
-    fn restore(&mut self, state: &str) -> Result<()>;
-    fn name(&self) -> &'static str;
-}
-```
+`checkpoint()` and `restore()` use an opaque string. The engine also stores the
+source name and canonical target path, and refuses a mismatched resume.
 
-2. Add a variant to `GeneratorMode` and the factory in `src/generators/mod.rs`.
-3. Add a CLI subcommand or flag in `src/cli/mod.rs`.
-4. Add unit tests for ordering, bounds, checkpoint round-trips and edge cases.
-5. Add an e2e test with a fixture.
+## Tests
 
-Checkpoint format is free-form as long as `checkpoint()` and `restore()` agree.
-The engine stores `source_name`, the state and the canonical target path.
+Unit tests sit next to the code in `#[cfg(test)] mod tests`. End-to-end tests
+live in `tests/e2e.rs` and use the fixtures in `examples/`.
 
-## Testing
-
-- **Unit tests** live next to the code in `#[cfg(test)] mod tests`.
-- **End-to-end tests** live in `tests/e2e.rs` and drive the public API over the
-  fixtures in `examples/`.
-- Every fixture uses the password **`92eo`** except PDF owner-only fixtures,
-  which require `VerifyOptions { try_pdf_owner: true }` (CLI: `--pdf-owner`).
-- Test helper: `wordlist_with_password()` writes a temporary wordlist.
-- Use `tempfile` for any on-disk test input.
+Every fixture uses the password `92eo` except `test_unicode.docx`, which uses
+`密码92eo`. Owner-only PDFs need `VerifyOptions { try_pdf_owner: true }` or
+`--pdf-owner`.
 
 ```bash
 cargo test
@@ -144,78 +117,68 @@ cargo test --test e2e
 cargo test --lib generators::mask
 ```
 
-## Code style
+## Release
 
-- Run `cargo fmt` and `cargo clippy --all-targets -- -D warnings` before
-  committing.
-- Naming follows Rust conventions: `snake_case` functions/modules,
-  `PascalCase` types, `SCREAMING_SNAKE_CASE` constants.
-- Prefer `anyhow::Result` in application code and `.context(...)` for
-  user-facing errors.
-- Keep public items documented with `///` where the behaviour is not obvious.
-- Do not swallow errors silently. `let _ =` is only acceptable for cleanup
-  operations where failure is harmless.
-- Keep hot loops allocation-free. Reuse buffers; avoid per-candidate `Vec`
-  allocations unless the API requires it.
-
-## Git workflow
-
-Use semantic commit messages:
-
-```
-feat(formats): support AES-256 R6 PDFs
-fix(engine): keep the checkpoint frontier on FIFO order
-docs: rewrite the bilingual user guide
-```
-
-Common types: `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `build`,
-`ci`, `chore`.
-
-Before a PR:
-
-- [ ] `cargo fmt --all -- --check`
-- [ ] `cargo clippy --all-targets -- -D warnings`
-- [ ] `cargo test`
-- [ ] new behaviour has tests
-- [ ] English and Chinese docs are both updated
-- [ ] `cargo audit` / `cargo machete` are clean
-
-## Release process
-
-1. Update the version in `Cargo.toml` (and `Cargo.lock` via `cargo check`).
-2. Update `CHANGELOG`-style notes in the release draft or commit message.
-3. Run the full local check suite.
+1. Bump the version in `Cargo.toml` and run `cargo check` to update
+   `Cargo.lock`.
+2. Update both language versions of any user-facing documentation.
+3. Run the checks above.
 4. Commit the version bump.
-5. `./scripts/release.sh patch|minor|major|vX.Y.Z` — creates and pushes the tag.
-6. CI builds 8 targets, creates the GitHub Release, then runs `publish.yml`.
-7. Verify:
-   - `SHA256SUMS` covers every artifact;
-   - Homebrew, APT and Docker install the new version;
-   - the AUR artifacts and manifests are attached.
-8. Announce the release.
+5. Run `./scripts/release.sh patch`, `minor`, `major` or `vX.Y.Z`.
 
-The publish workflow can be re-run without rebuilding:
+The tag starts eight builds: six Linux targets and two macOS targets. CI creates
+the GitHub Release, then runs `publish.yml` to update the package channels.
+
+Do not create a release for documentation-only changes. Pushing to `master`
+runs the checks but no tag, so no release or package update happens.
+
+| Channel | Status |
+|---------|--------|
+| Homebrew | live |
+| APT repository on GitHub Pages | live, signed |
+| GHCR multi-arch image | live |
+| `install.sh` | live |
+| GitHub Release archives and packages | live |
+| AUR `password-cracking-bin` | generated, submission pending |
+| crates.io | pipeline ready, token required |
+
+Re-run publishing for an existing release without rebuilding:
 
 ```bash
 gh workflow run publish.yml -f version=0.2.1
 ```
 
-## Documentation policy
+Publishing jobs download assets from the GitHub Release. Missing credentials
+skip a channel instead of failing the release.
 
-- Every maintained document has an English `NAME.md` and a Chinese
-  `NAME.zh-CN.md`.
-- Both versions must be updated in the same change. Do not leave one language
-  describing an older CLI or a removed platform.
-- The README pair (`README.md`, `README_CN.md`) follows the same rule.
-- `docs/superpowers/` is an archive of earlier design work and is intentionally
-  not translated or kept up to date.
-- Prefer concrete commands and measured numbers over marketing language.
+### Secrets
+
+| Secret | Purpose |
+|--------|---------|
+| `APT_GPG_PRIVATE_KEY` | sign APT repository metadata |
+| `HOMEBREW_TAP_DEPLOY_KEY` | push the formula to `homebrew-tap` |
+| `AUR_SSH_PRIVATE_KEY` | push the AUR package (optional) |
+| `CARGO_REGISTRY_TOKEN` | publish to crates.io (optional) |
+
+The public APT key is at
+`https://lianglliu.github.io/password-cracking/key.gpg`. Rotating it breaks
+existing user configurations, so announce the new key and keep the old one
+available during the transition.
+
+## Style
+
+- Run `cargo fmt` and `cargo clippy --all-targets -- -D warnings` before a
+  commit.
+- Follow Rust naming conventions and keep hot loops free of per-candidate
+  allocations.
+- Use `anyhow::Result` and `.context(...)` for errors the user can act on.
+- Write semantic commit messages, for example `fix(pdf): parse
+  /EncryptMetadata` or `docs: trim the usage guide`.
+- Update the English and Chinese files in the same change.
+- Prefer measured numbers and concrete commands over broad claims.
 
 ## Security
 
-- This project is for authorized password recovery and testing only.
-- Never commit credentials, private keys, tokens or real user data.
-- CI secrets used by publishing: `APT_GPG_PRIVATE_KEY`,
-  `HOMEBREW_TAP_DEPLOY_KEY`, optional `AUR_SSH_PRIVATE_KEY`,
-  `CARGO_REGISTRY_TOKEN`.
-- Report vulnerabilities privately; do not open a public issue with an exploit.
+Use this project only for authorized recovery and testing. Do not commit
+credentials, private keys, tokens or real user data. Report vulnerabilities in
+private instead of opening a public issue with an exploit.

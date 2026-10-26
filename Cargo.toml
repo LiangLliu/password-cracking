@@ -15,7 +15,6 @@ categories = ["command-line-utilities", "cryptography"]
 # Keep the published crate focused; the e2e tests still need examples/.
 exclude = [
     ".github/",
-    "docs/superpowers/",
     "packaging/",
     "scripts/",
     "wordlists/",

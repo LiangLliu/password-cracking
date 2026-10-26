@@ -2,26 +2,22 @@
 
 [English](README.md) | **中文**
 
-用 Rust 编写的高性能文档密码破解工具。支持 ZIP、PDF 和 Office 文件，提供
-字典、暴力、Mask 和混合（字典 + 规则）四种攻击模式，完全在 CPU 本地运行，
-不依赖任何外部服务。
+`password-cracking` 用于找回 ZIP、PDF 和 Office 文件的密码，支持 Linux 和
+macOS。程序在本地 CPU 上运行，不访问网络，提供字典、暴力、Mask 和混合四种
+攻击模式。
 
-> **仅限合法用途。** 本工具用于找回你自己的加密文件，或在获得授权的安全测试中
-> 使用。请勿用于你无权访问或未获授权测试的数据。
+> 请仅对自己拥有或已获授权测试的文件使用本工具。
 
-## 特性
+## 功能
 
-- **格式**：ZIP（ZipCrypto、AES-128/192/256）、PDF（RC4-40/128、AES-128、
-  AES-256 R5/R6，支持 user 与 owner 密码）、Office（Agile AES-128/192/256）
-- **四种攻击模式**：字典、暴力、Mask（`?d?d?l?l`）、混合（字典 + 变异规则）
-- **高性能**：FIFO worker 线程池 + 自适应批次，10 核笔记本 CPU 上 ZIP 可达
-  1100 万+ 密码/秒
-- **流式处理**：词表使用 mmap，候选按批生成，超大输入下内存保持平稳
-- **断点续跑**：`--checkpoint` / `--resume`，不会重复验证已完成的前缀
-- **格式识别**：基于文件魔数，不只依赖扩展名
-- **两阶段验证**：ZIP 的 12 字节头检查可在完整解密前排除几乎所有错误密码
-- **Linux 与 macOS**：Linux 静态 musl 构建、macOS 原生构建、man page、shell
-  补全、`.deb`/`.rpm`/`.apk`、Homebrew 和 Docker
+- ZIP：ZipCrypto、AES-128/192/256。
+- PDF：RC4-40/128、AES-128、AES-256 R5/R6，支持 user 和 owner 密码。
+- Office：Agile AES-128/192/256（Office 2010 及更高版本）。
+- 字典、暴力、Mask 和混合四种攻击模式。
+- 词表使用 mmap，候选按批生成，内存占用保持平稳。
+- 检查点可续跑长时间任务，不重复验证已完成的候选。
+- 通过文件魔数识别格式，无法判断时回退到扩展名。
+- 提供 Linux 安装包、Homebrew、Docker 和静态二进制安装脚本。
 
 ## 安装
 
@@ -29,7 +25,7 @@
 # Homebrew（macOS / Linux）
 brew install LiangLliu/tap/password-cracking
 
-# Debian / Ubuntu / 树莓派系统（签名 APT 仓库）
+# Debian、Ubuntu、树莓派系统（签名 APT 仓库）
 sudo install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://lianglliu.github.io/password-cracking/key.gpg \
   | sudo tee /etc/apt/keyrings/password-cracking.gpg > /dev/null
@@ -47,9 +43,8 @@ curl -fsSL https://raw.githubusercontent.com/LiangLliu/password-cracking/master/
 cargo install --git https://github.com/LiangLliu/password-cracking
 ```
 
-Arch Linux（`password-cracking-bin`）和 crates.io 发布流程已就绪，但需要一次性
-配置 AUR 账号或 crates.io token。当前状态、签名密钥和排错说明见
-[分发渠道](docs/DISTRIBUTION.zh-CN.md)。
+每个 release 还附带 `.deb`、`.rpm`、`.apk` 包和 Arch Linux 的 `PKGBUILD`。
+AUR 与 crates.io 发布需要一次性配置账号，步骤见[开发指南](docs/DEVELOPMENT.zh-CN.md)。
 
 ## 使用
 
@@ -57,41 +52,45 @@ Arch Linux（`password-cracking-bin`）和 crates.io 发布流程已就绪，但
 # 字典攻击
 password-cracking -f document.zip dictionary -w passwords.txt
 
-# 暴力破解（4-6 位数字 PIN）
+# 暴力破解 4 到 6 位数字 PIN
 password-cracking -f document.pdf brute-force -c digits --min-length 4 --max-length 6
 
-# Mask：两位数字 + 两位小写字母（92eo）
+# Mask：两位数字加两位小写字母
 password-cracking -f document.zip mask -m "?d?d?l?l"
 
-# 混合：字典 + 规则变异
+# 混合攻击：字典加变异规则
 password-cracking -f document.docx hybrid -w dict.txt --capitalize --l33t --append-digits 99
 
 # 断点续跑
 password-cracking -f document.pdf brute-force -c alnum --min-length 1 --max-length 8 \
   --checkpoint progress.ck --resume
 
-# 静默模式（脚本使用，只输出密码）
+# 只输出密码，便于脚本调用
 password-cracking -q -f document.zip dictionary -w passwords.txt
 ```
 
+运行 `password-cracking --help` 或 `password-cracking man` 可查看完整命令参考。
+攻击模式、退出码和检查点规则见[使用指南](docs/USAGE.zh-CN.md)。
+
 ## 性能
 
-Apple M2 Pro（10 核 CPU）release 构建实测：
+在 Apple M2 Pro（10 核）上使用 release 构建实测：
 
-| 格式 | 加密 | 速度 |
-|------|------|------|
-| ZIP | ZipCrypto | 1100 万–1150 万 密码/秒 |
-| PDF | RC4-128 | 51 万–54 万 密码/秒 |
-| PDF（owner） | RC4-128 | 约 15 万 密码/秒（`--pdf-owner`） |
-| Office | Agile AES-256 | 500–800 密码/秒 |
+| 格式 | 加密方式 | 速度 |
+|------|----------|------|
+| ZIP | ZipCrypto | 1100 万到 1150 万密码/秒 |
+| ZIP | AES-256 | 约 1.5 万密码/秒 |
+| PDF | RC4-128 | 51 万到 54 万密码/秒 |
+| PDF | AES-256 R6 | 约 7600 密码/秒 |
+| PDF（owner） | RC4-128 | 约 15 万密码/秒（`--pdf-owner`） |
+| Office | Agile AES-256 | 500 到 800 密码/秒 |
 
-Office 慢是算法设计使然：每个候选密码需要约 10 万次 SHA-512 迭代。Office 文件
-应优先使用字典或混合攻击。密钥空间表和调优建议见
-[性能指南](docs/PERFORMANCE.zh-CN.md)。
+Office 对每个候选执行约 10 万次 SHA-512 迭代。破解 Office 文件应优先使用字典
+或混合攻击。加密参数和 CPU 型号都会改变实际速度。
 
 ## 工作原理
 
-```
+```text
 CLI（clap）
   └── CrackerEngine
         ├── PasswordSource   字典 | 暴力 | Mask | 混合
@@ -101,38 +100,28 @@ CLI（clap）
               └── verify()       完整密码校验
 ```
 
-- 生成线程把有界批次送入固定数量的 worker 线程。
-- 批次大致按顺序完成，因此检查点前沿有意义：保存的位置是最早一个尚未完整
-  验证的批次的起点。
-- 批次大小在 32–4096 之间自适应，目标每批约 250 ms：慢格式能及时写检查点，
-  快格式能摊薄同步开销。
+生成线程按批填充候选，通过 FIFO 通道交给固定数量的 worker 线程。FIFO 顺序让
+检查点有明确含义：文件保存的是最早一个尚未完成批次的起点。批次大小在 32 到
+4096 之间调整，目标是每批约 250 毫秒。
+
+引擎先调用 `quick_check`，再调用 `verify`。ZIP ZipCrypto 用 12 字节头检查快速
+排除错误密码。PDF 和 Office 的校验本身就是主要开销，因此跳过这层检查。
 
 ## 文档
 
-| 文档 | English | 中文 |
-|------|---------|------|
-| 用户指南 | [USER_GUIDE.md](docs/USER_GUIDE.md) | [USER_GUIDE.zh-CN.md](docs/USER_GUIDE.zh-CN.md) |
-| 分发渠道 | [DISTRIBUTION.md](docs/DISTRIBUTION.md) | [DISTRIBUTION.zh-CN.md](docs/DISTRIBUTION.zh-CN.md) |
-| 性能 | [PERFORMANCE.md](docs/PERFORMANCE.md) | [PERFORMANCE.zh-CN.md](docs/PERFORMANCE.zh-CN.md) |
-| 架构 | [PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md) | [PROJECT_STRUCTURE.zh-CN.md](docs/PROJECT_STRUCTURE.zh-CN.md) |
-| 开发 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | [DEVELOPMENT.zh-CN.md](docs/DEVELOPMENT.zh-CN.md) |
-| CI/CD | [CI-CD.md](docs/CI-CD.md) | [CI-CD.zh-CN.md](docs/CI-CD.zh-CN.md) |
-| 发布工程 | [RELEASE_LINUX.md](docs/RELEASE_LINUX.md) | [RELEASE_LINUX.zh-CN.md](docs/RELEASE_LINUX.zh-CN.md) |
-| ZIP 实现 | [ZIP_IMPLEMENTATION.md](docs/ZIP_IMPLEMENTATION.md) | [ZIP_IMPLEMENTATION.zh-CN.md](docs/ZIP_IMPLEMENTATION.zh-CN.md) |
-| PDF 实现 | [PDF_IMPLEMENTATION.md](docs/PDF_IMPLEMENTATION.md) | [PDF_IMPLEMENTATION.zh-CN.md](docs/PDF_IMPLEMENTATION.zh-CN.md) |
-| Office 实现 | [OFFICE_IMPLEMENTATION.md](docs/OFFICE_IMPLEMENTATION.md) | [OFFICE_IMPLEMENTATION.zh-CN.md](docs/OFFICE_IMPLEMENTATION.zh-CN.md) |
-| 测试文件 | [examples/README.md](examples/README.md) | [examples/README.zh-CN.md](examples/README.zh-CN.md) |
+- [使用指南](docs/USAGE.zh-CN.md) / [English](docs/USAGE.md)
+- [开发与发布](docs/DEVELOPMENT.zh-CN.md) / [English](docs/DEVELOPMENT.md)
+- [测试文件](examples/README.zh-CN.md) / [English](examples/README.md)
 
 ## 限制
 
-- **Office**：仅支持 Agile 加密（v4，Office 2010+）。旧版 CryptoAPI/ECMA-376
-  标准加密会给出明确错误。
-- **RAR5 / 7z**：暂不支持。
-- **PDF**：支持 RC4/AES 的 user 与 owner 密码；空密码和证书加密不在范围内。
-- **ZIP**：支持 ZipCrypto 和 AES；不支持分卷/多卷压缩包。
-- **Windows**：不支持。代码本身可移植，但构建和发行只针对 Linux 与 macOS。
-- **字典断点续跑**：假设两次运行之间词表内容未变。
+- Office：仅支持 Agile 加密。旧版 CryptoAPI/ECMA-376 文件会被拒绝。
+- 不支持 RAR5 和 7z。
+- PDF：空密码和证书加密不在支持范围内。
+- ZIP：不支持分卷和多卷压缩包。
+- 不支持 Windows。
+- 字典检查点假设两次运行之间词表内容未变。
 
 ## 许可证
 
-MIT —— 见 [LICENSE](LICENSE)。
+MIT，见 [LICENSE](LICENSE)。
