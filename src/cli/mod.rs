@@ -49,9 +49,9 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum AttackMode {
-    /// Dictionary attack using a wordlist file or directory
+    /// Dictionary attack using a wordlist file, directory, or `-` for stdin
     Dictionary {
-        /// Path to wordlist file or directory of .txt files
+        /// Path to wordlist file, directory of .txt files, or `-` for stdin
         #[arg(short, long)]
         wordlist: PathBuf,
         /// Remove duplicate candidates (uses memory proportional to uniques)
@@ -78,7 +78,7 @@ pub enum AttackMode {
     },
     /// Hybrid attack: dictionary words + mutation rules
     Hybrid {
-        /// Path to wordlist
+        /// Path to wordlist file, directory, or `-` for stdin
         #[arg(short, long)]
         wordlist: PathBuf,
         /// Capitalize first letter
@@ -90,6 +90,9 @@ pub enum AttackMode {
         /// Convert to lowercase
         #[arg(long)]
         lower: bool,
+        /// Invert ASCII letter case (pAss→PaSS)
+        #[arg(long)]
+        toggle_case: bool,
         /// Apply l33t-speak substitutions (a→@, e→3, i→1, o→0, s→$)
         #[arg(long)]
         l33t: bool,
@@ -144,6 +147,7 @@ impl Cli {
                 capitalize,
                 upper,
                 lower,
+                toggle_case,
                 l33t,
                 reverse,
                 duplicate,
@@ -159,6 +163,9 @@ impl Cli {
                 }
                 if *lower {
                     rules.push(Rule::Lower);
+                }
+                if *toggle_case {
+                    rules.push(Rule::ToggleCase);
                 }
                 if *l33t {
                     rules.push(Rule::L33t);
@@ -226,35 +233,24 @@ pub fn run() -> Result<bool> {
     utils::validate_file(file)
         .with_context(|| format!("Invalid target file: {}", file.display()))?;
 
+    if cli.resume {
+        match &cli.mode {
+            AttackMode::Dictionary { wordlist, .. } | AttackMode::Hybrid { wordlist, .. }
+                if wordlist == std::path::Path::new("-") =>
+            {
+                anyhow::bail!("Cannot --resume when reading wordlist from stdin ('-')");
+            }
+            _ => {}
+        }
+    }
+
     let mode = cli.build_generator_mode()?;
     let mut source = crate::generators::create_source(mode)?;
 
     // Resume from a checkpoint before starting the engine.
     if let Some(ckpt) = &cli.checkpoint {
         if cli.resume && ckpt.exists() {
-            let content = std::fs::read_to_string(ckpt)
-                .with_context(|| format!("Cannot read checkpoint {}", ckpt.display()))?;
-            let mut lines = content.lines();
-            let name = lines.next().unwrap_or_default();
-            let state = lines.next().unwrap_or_default();
-            let saved_target = lines.next().unwrap_or_default();
-            if !saved_target.is_empty() {
-                let current = ckpt_target(file);
-                if saved_target != current {
-                    anyhow::bail!(
-                        "Checkpoint belongs to target '{saved_target}', but this run targets '{current}'"
-                    );
-                }
-            }
-            if name != source.name() {
-                anyhow::bail!(
-                    "Checkpoint belongs to attack '{name}', but this run is '{}'",
-                    source.name()
-                );
-            }
-            source
-                .restore(state)
-                .with_context(|| format!("Invalid checkpoint state in {}", ckpt.display()))?;
+            crate::engine::restore_checkpoint(ckpt, file, &mut *source)?;
             if !cli.quiet {
                 println!("Resumed from {}", ckpt.display());
             }
@@ -314,12 +310,4 @@ pub fn run() -> Result<bool> {
             Ok(false)
         }
     }
-}
-
-/// Canonicalized target path for checkpoint comparison.
-fn ckpt_target(path: &std::path::Path) -> String {
-    path.canonicalize()
-        .unwrap_or_else(|_| path.to_path_buf())
-        .display()
-        .to_string()
 }

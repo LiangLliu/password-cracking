@@ -48,10 +48,14 @@ password-cracking -f document.zip dictionary -w wordlists/
 
 # 去重（内存占用随唯一候选数量增长）
 password-cracking -f document.zip dictionary -w rockyou.txt --dedup
+
+# 从标准输入读取词表
+cat passwords.txt | password-cracking -f document.zip dictionary -w -
 ```
 
-词表通过 mmap 按字节偏移读取，文件大小不会增加内存占用。每行会去掉首尾空白，
-空行和以 `#` 开头的行会跳过。候选按字节处理，因此非 UTF-8 词表也能使用。
+对于文件和目录，词表通过 mmap 按字节偏移读取，文件大小不会增加内存占用。
+每行会去掉首尾空白，空行和以 `#` 开头的行会跳过。候选按字节处理，因此非 UTF-8
+词表也能使用。传入 `-w -` 可从标准输入流式读取（不支持与 `--resume` 断点续传并用）。
 
 ### 暴力破解
 
@@ -107,7 +111,7 @@ password-cracking -f document.zip hybrid -w passwords.txt --append-digits 99
 
 # 同时使用多条规则
 password-cracking -f document.zip hybrid -w passwords.txt \
-  --capitalize --upper --lower --l33t --reverse --duplicate --append-digits 99
+  --capitalize --upper --lower --toggle-case --l33t --reverse --duplicate --append-digits 99
 ```
 
 使用 `--append-digits N` 时，每个单词会生成原词、每条实际改变单词的规则对应的
@@ -152,15 +156,16 @@ password-cracking -f document.pdf brute-force -c alnum --min-length 1 --max-leng
 
 检查点保存已验证的前沿，即最早一个尚未完成批次的起点。续跑从该批次开始。强制终止最多丢失一个检查点间隔加上正在处理的批次。
 
-检查点文件包含三行：
+检查点文件包含四行：
 
 ```text
 brute-force
 5:0,0,0,0:1
 /absolute/path/to/document.pdf
+charset=303132333435363738396162...;min=1;max=8
 ```
 
-三行分别是攻击模式、模式内部位置和目标文件路径。如果攻击模式或目标文件不一致，
+四行分别是攻击模式、模式内部位置、目标文件路径和攻击参数签名（字符集、掩码、词表、变异规则）。如果攻击模式、目标文件或参数签名不一致，
 续跑会拒绝启动。
 
 搜索结束后程序会删除检查点，无论是找到密码还是耗尽密钥空间。字典续跑假设词表
@@ -177,7 +182,7 @@ brute-force
 | `alnum` | 数字、小写和大写字母 | 62 |
 | `all` | 数字、小写、大写和特殊字符 | 93 |
 
-其他值会作为自定义字符集。重复字符只会重复工作。
+其他值会作为自定义字符集，其中的重复字符会自动按首次出现的顺序去重。
 
 ## 变异规则
 
@@ -186,6 +191,7 @@ brute-force
 | 首字母大写 | `--capitalize` | `Password` |
 | 转为大写 | `--upper` | `PASSWORD` |
 | 转为小写 | `--lower` | `password` |
+| 大小写翻转 | `--toggle-case` | `PASSWORD` |
 | L33t | `--l33t` | `p@$$w0rd` |
 | 反转 | `--reverse` | `drowssap` |
 | 重复 | `--duplicate` | `passwordpassword` |
@@ -288,6 +294,7 @@ done
 | 只能使用 owner 密码的 PDF 未找到 | 加上 `--pdf-owner`。 |
 | `Unsupported Office encryption version` | 文件使用旧版 CryptoAPI/ECMA-376 加密。 |
 | `Checkpoint belongs to target ...` | 检查点属于另一个文件。使用新的检查点路径。 |
-| 续跑后没有找到本应存在的密码 | 词表或攻击参数在两次运行之间发生了变化。 |
+| `Checkpoint parameters do not match ...` | 字符集、掩码、词表或规则与保存检查点时不一致。 |
+| 续跑后没有找到本应存在的密码 | 词表文件的内容在两次运行之间发生了变化。 |
 | Office 耗时很长 | 每个候选约需 10 万次哈希迭代。请使用字典或混合攻击。 |
 | 没有进度条 | stdout 不是终端。 |

@@ -1,6 +1,7 @@
-use super::PasswordSource;
+use super::{CandidateBatch, PasswordSource, WorkShard};
 use crate::utils::charsets;
 use anyhow::{Result, bail};
+use std::sync::Arc;
 
 /// Hashcat-style mask attack source.
 ///
@@ -13,8 +14,10 @@ use anyhow::{Result, bail};
 /// - `??` literal `?`
 /// - any other character is a literal (multi-byte UTF-8 is preserved)
 pub struct MaskSource {
-    positions: Vec<Vec<u8>>,
-    indices: Vec<usize>,
+    mask_pattern: String,
+    positions: Arc<[Vec<u8>]>,
+    indices: [u16; 128],
+    pos_count: usize,
     exhausted: bool,
 }
 
@@ -56,26 +59,19 @@ impl MaskSource {
             bail!("Mask too long (max 128 positions)");
         }
 
-        let indices = vec![0usize; positions.len()];
+        let pos_count = positions.len();
         Ok(Self {
-            positions,
-            indices,
+            mask_pattern: mask.to_string(),
+            positions: positions.into(),
+            indices: [0u16; 128],
+            pos_count,
             exhausted: false,
         })
     }
 
-    fn current(&self) -> Box<[u8]> {
-        self.indices
-            .iter()
-            .zip(&self.positions)
-            .map(|(&idx, charset)| charset[idx])
-            .collect::<Vec<u8>>()
-            .into_boxed_slice()
-    }
-
     fn increment(&mut self) -> bool {
-        for i in (0..self.indices.len()).rev() {
-            if self.indices[i] + 1 < self.positions[i].len() {
+        for i in (0..self.pos_count).rev() {
+            if usize::from(self.indices[i]) + 1 < self.positions[i].len() {
                 self.indices[i] += 1;
                 return true;
             }
@@ -83,13 +79,54 @@ impl MaskSource {
         }
         false
     }
+
+    fn remaining_count(&self) -> u64 {
+        if self.exhausted {
+            return 0;
+        }
+        let mut rem = 0u64;
+        let mut weight = 1u64;
+        for i in (0..self.pos_count).rev() {
+            let base = self.positions[i].len() as u64;
+            let left = (self.positions[i].len() - 1 - usize::from(self.indices[i])) as u64;
+            rem = rem.saturating_add(left.saturating_mul(weight));
+            weight = weight.saturating_mul(base);
+        }
+        rem.saturating_add(1)
+    }
+
+    fn advance_by(&mut self, steps: u64) {
+        let mut carry = steps;
+        for i in (0..self.pos_count).rev() {
+            let base = self.positions[i].len() as u64;
+            let sum = u64::from(self.indices[i]) + carry;
+            self.indices[i] = (sum % base) as u16;
+            carry = sum / base;
+            if carry == 0 {
+                break;
+            }
+        }
+    }
 }
 
 impl PasswordSource for MaskSource {
-    fn fill_batch(&mut self, batch: &mut Vec<Box<[u8]>>, max: usize) -> bool {
+    fn fill_batch(&mut self, batch: &mut CandidateBatch, max: usize) -> bool {
         batch.clear();
+        if self.exhausted || max == 0 {
+            return false;
+        }
+        let mut buf = [0u8; 128];
         while batch.len() < max && !self.exhausted {
-            batch.push(self.current());
+            for ((dst, charset), &idx) in buf[..self.pos_count]
+                .iter_mut()
+                .zip(self.positions.iter())
+                .zip(&self.indices[..self.pos_count])
+            {
+                *dst = charset[usize::from(idx)];
+            }
+            if !batch.push(&buf[..self.pos_count]) {
+                break;
+            }
             if !self.increment() {
                 self.exhausted = true;
             }
@@ -97,32 +134,73 @@ impl PasswordSource for MaskSource {
         !batch.is_empty()
     }
 
+    fn take_shard(&mut self, max: usize) -> Option<WorkShard> {
+        if self.exhausted || max == 0 {
+            return None;
+        }
+        let start_indices = self.indices;
+        let rem = self.remaining_count();
+        let taken = rem.min(max as u64);
+        if taken == rem {
+            self.exhausted = true;
+        } else {
+            self.advance_by(taken);
+        }
+
+        Some(WorkShard::Mask {
+            positions: Arc::clone(&self.positions),
+            indices: start_indices,
+            pos_count: self.pos_count,
+            count: taken,
+        })
+    }
+
     fn estimated_total(&self) -> Option<u64> {
         let mut total = 1u64;
-        for charset in &self.positions {
+        for charset in self.positions.iter() {
             total = total.checked_mul(charset.len() as u64)?;
         }
         Some(total)
     }
 
+    fn remaining_estimate(&self) -> Option<u64> {
+        if self.exhausted {
+            return Some(0);
+        }
+        // Only compute exact remaining when total fits or saturating count didn't saturate.
+        let rem = self.remaining_count();
+        if rem == u64::MAX { None } else { Some(rem) }
+    }
+
     fn checkpoint(&self) -> Option<String> {
-        Some(
-            self.indices
-                .iter()
-                .map(|i| i.to_string())
-                .collect::<Vec<_>>()
-                .join(","),
-        )
+        let coords = self.indices[..self.pos_count]
+            .iter()
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        Some(if self.exhausted {
+            format!("{coords}|1")
+        } else {
+            coords
+        })
     }
 
     fn restore(&mut self, checkpoint: &str) -> Result<()> {
-        let parts: Vec<&str> = checkpoint.split(',').collect();
-        if parts.len() != self.indices.len() {
-            bail!("Mask checkpoint has {} positions, expected {}", parts.len(), self.indices.len());
+        let (coords, exhausted) = match checkpoint.split_once('|') {
+            Some((c, flag)) => (c, flag == "1"),
+            None => (checkpoint, false),
+        };
+        if exhausted {
+            self.exhausted = true;
+            return Ok(());
+        }
+        let parts: Vec<&str> = coords.split(',').collect();
+        if parts.len() != self.pos_count {
+            bail!("Mask checkpoint has {} positions, expected {}", parts.len(), self.pos_count);
         }
         for (i, part) in parts.iter().enumerate() {
-            let idx: usize = part.parse()?;
-            if idx >= self.positions[i].len() {
+            let idx: u16 = part.parse()?;
+            if usize::from(idx) >= self.positions[i].len() {
                 bail!("Mask checkpoint index out of range at position {i}");
             }
             self.indices[i] = idx;
@@ -131,9 +209,73 @@ impl PasswordSource for MaskSource {
         Ok(())
     }
 
+    fn config_signature(&self) -> String {
+        format!("mask:{}", self.mask_pattern)
+    }
+
     fn name(&self) -> &str {
         "mask"
     }
+}
+
+pub(super) fn execute_shard(
+    positions: &[Vec<u8>],
+    mut indices: [u16; 128],
+    pos_count: usize,
+    mut count: u64,
+    verifier: &dyn crate::formats::PasswordVerifier,
+    stop: &std::sync::atomic::AtomicBool,
+    global_attempts: &std::sync::atomic::AtomicU64,
+) -> Option<Vec<u8>> {
+    use super::add_and_maybe_flush;
+    use std::sync::atomic::Ordering;
+
+    if pos_count == 0 || count == 0 {
+        return None;
+    }
+    let mut buf = [0u8; 128];
+    for ((dst, charset), &idx) in buf[..pos_count - 1]
+        .iter_mut()
+        .zip(&positions[..pos_count - 1])
+        .zip(&indices[..pos_count - 1])
+    {
+        *dst = charset[usize::from(idx)];
+    }
+    let last_charset = &positions[pos_count - 1];
+
+    let mut pending_attempts = 0u64;
+    while count > 0 && !stop.load(Ordering::Relaxed) {
+        let start_last = usize::from(indices[pos_count - 1]);
+        let avail = (last_charset.len() - start_last) as u64;
+        let group_len = count.min(avail) as usize;
+        let last_slice = &last_charset[start_last..start_last + group_len];
+
+        let res = verifier.verify_prefix_group(&buf[..pos_count - 1], last_slice, stop);
+        add_and_maybe_flush(&mut pending_attempts, res.attempts, global_attempts, false);
+        if let Some(matched_idx) = res.matched {
+            add_and_maybe_flush(&mut pending_attempts, 0, global_attempts, true);
+            buf[pos_count - 1] = last_slice[matched_idx];
+            return Some(buf[..pos_count].to_vec());
+        }
+
+        count -= group_len as u64;
+        if count == 0 {
+            break;
+        }
+        indices[pos_count - 1] = 0;
+        for i in (0..pos_count - 1).rev() {
+            let next = usize::from(indices[i]) + 1;
+            if next < positions[i].len() {
+                indices[i] = next as u16;
+                buf[i] = positions[i][next];
+                break;
+            }
+            indices[i] = 0;
+            buf[i] = positions[i][0];
+        }
+    }
+    add_and_maybe_flush(&mut pending_attempts, 0, global_attempts, true);
+    None
 }
 
 #[cfg(test)]
@@ -162,20 +304,20 @@ mod tests {
     #[test]
     fn iteration_order_and_checkpoint() {
         let mut src = MaskSource::new("?d?l").unwrap();
-        let mut batch = Vec::new();
+        let mut batch = CandidateBatch::new();
         src.fill_batch(&mut batch, 3);
-        assert_eq!(&*batch[0], b"0a");
-        assert_eq!(&*batch[1], b"0b");
-        assert_eq!(&*batch[2], b"0c");
+        assert_eq!(batch.get(0), Some(&b"0a"[..]));
+        assert_eq!(batch.get(1), Some(&b"0b"[..]));
+        assert_eq!(batch.get(2), Some(&b"0c"[..]));
 
         let ck = src.checkpoint().unwrap();
         assert_eq!(ck, "0,3");
 
         let mut restored = MaskSource::new("?d?l").unwrap();
         restored.restore(&ck).unwrap();
-        let mut batch = Vec::new();
+        let mut batch = CandidateBatch::new();
         restored.fill_batch(&mut batch, 1);
-        assert_eq!(&*batch[0], b"0d");
+        assert_eq!(batch.get(0), Some(&b"0d"[..]));
     }
 
     #[test]
@@ -187,13 +329,26 @@ mod tests {
 
     #[test]
     fn preserves_multibyte_literals() {
-        let src = MaskSource::new("密?d").unwrap();
+        let mut src = MaskSource::new("密?d").unwrap();
         // '密' is 3 UTF-8 bytes -> 3 fixed positions + 1 digit position.
         assert_eq!(src.positions.len(), 4);
-        let mut batch = Vec::new();
-        let mut src = src;
+        let mut batch = CandidateBatch::new();
         src.fill_batch(&mut batch, 1);
         let expected = "密0".as_bytes();
-        assert_eq!(&*batch[0], expected);
+        assert_eq!(batch.get(0), Some(expected));
+    }
+
+    #[test]
+    fn shard_advances_accurately() {
+        let mut src = MaskSource::new("?d?d").unwrap();
+        let shard = src.take_shard(37).unwrap();
+        match shard {
+            WorkShard::Mask { count, .. } => assert_eq!(count, 37),
+            _ => unreachable!(),
+        }
+        assert_eq!(src.remaining_estimate(), Some(63));
+        let mut batch = CandidateBatch::new();
+        src.fill_batch(&mut batch, 1);
+        assert_eq!(batch.get(0), Some(&b"37"[..]));
     }
 }

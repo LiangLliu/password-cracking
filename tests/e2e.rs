@@ -275,3 +275,90 @@ fn dictionary_cracks_office_unicode_password() {
     };
     assert_eq!(crack(&example("test_unicode.docx"), mode).as_deref(), Some("密码92eo"));
 }
+
+#[test]
+fn hybrid_toggle_case_cracks_zip() {
+    let mut wl = tempfile::NamedTempFile::new().expect("create temp wordlist");
+    writeln!(wl, "wrong").unwrap();
+    writeln!(wl, "92EO").unwrap();
+    wl.flush().unwrap();
+
+    let mode = GeneratorMode::Hybrid {
+        dictionary_path: wl.path().to_path_buf(),
+        rules: vec![Rule::ToggleCase],
+    };
+    assert_eq!(crack(&example("test.zip"), mode).as_deref(), Some(KNOWN_PASSWORD));
+}
+
+#[test]
+fn cli_stdin_dictionary_and_toggle_case_and_resume_validation() {
+    use std::process::{Command, Stdio};
+
+    let bin = env!("CARGO_BIN_EXE_password-cracking");
+
+    // 1. Stdin wordlist `-w -`
+    let mut child = Command::new(bin)
+        .args(["-q", "-f"])
+        .arg(example("test.zip"))
+        .args(["dictionary", "-w", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn binary for stdin test");
+    {
+        let stdin = child.stdin.as_mut().unwrap();
+        writeln!(stdin, "wrong1").unwrap();
+        writeln!(stdin, "{KNOWN_PASSWORD}").unwrap();
+    }
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), KNOWN_PASSWORD);
+
+    // 2. Hybrid CLI `--toggle-case`
+    let mut wl = tempfile::NamedTempFile::new().unwrap();
+    writeln!(wl, "92EO").unwrap();
+    wl.flush().unwrap();
+    let out = Command::new(bin)
+        .args(["-q", "-f"])
+        .arg(example("test.zip"))
+        .args(["hybrid", "-w"])
+        .arg(wl.path())
+        .arg("--toggle-case")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), KNOWN_PASSWORD);
+
+    // 3. `--resume` rejects mismatched config_signature (line 4) and accepts matching signature.
+    let ckpt = tempfile::NamedTempFile::new().unwrap();
+    let target = example("test.zip").canonicalize().unwrap();
+    std::fs::write(ckpt.path(), format!("mask\n9,2,4,0\n{}\nmask:?d?d?l?l\n", target.display()))
+        .unwrap();
+
+    let mismatch = Command::new(bin)
+        .args(["-q", "-f"])
+        .arg(example("test.zip"))
+        .args(["--checkpoint"])
+        .arg(ckpt.path())
+        .args(["--resume", "mask", "-m", "?d?d?d?d"])
+        .output()
+        .unwrap();
+    assert!(!mismatch.status.success());
+    assert!(
+        String::from_utf8_lossy(&mismatch.stderr).contains("do not match"),
+        "unexpected stderr: {}",
+        String::from_utf8_lossy(&mismatch.stderr)
+    );
+
+    let resumed = Command::new(bin)
+        .args(["-q", "-f"])
+        .arg(example("test.zip"))
+        .args(["--checkpoint"])
+        .arg(ckpt.path())
+        .args(["--resume", "mask", "-m", "?d?d?l?l"])
+        .output()
+        .unwrap();
+    assert!(resumed.status.success(), "stderr: {}", String::from_utf8_lossy(&resumed.stderr));
+    assert_eq!(String::from_utf8_lossy(&resumed.stdout).trim(), KNOWN_PASSWORD);
+}

@@ -51,11 +51,16 @@ password-cracking -f document.zip dictionary -w wordlists/
 
 # Drop duplicates (memory grows with the number of unique candidates)
 password-cracking -f document.zip dictionary -w rockyou.txt --dedup
+
+# Read candidates from stdin
+cat passwords.txt | password-cracking -f document.zip dictionary -w -
 ```
 
-The wordlist is memory-mapped and read by byte offset, so file size does not
-raise memory use. Lines lose surrounding whitespace. Empty lines and lines that
-start with `#` are skipped. Candidates stay as bytes, so non-UTF-8 lists work.
+For files and directories, the wordlist is memory-mapped and read by byte offset,
+so file size does not raise memory use. Lines lose surrounding whitespace.
+Empty lines and lines that start with `#` are skipped. Candidates stay as bytes,
+so non-UTF-8 lists work. Passing `-w -` streams candidates from stdin (resuming
+from a checkpoint is not supported for stdin).
 
 ### Brute-force
 
@@ -113,7 +118,7 @@ password-cracking -f document.zip hybrid -w passwords.txt --append-digits 99
 
 # Several rules at once
 password-cracking -f document.zip hybrid -w passwords.txt \
-  --capitalize --upper --lower --l33t --reverse --duplicate --append-digits 99
+  --capitalize --upper --lower --toggle-case --l33t --reverse --duplicate --append-digits 99
 ```
 
 With `--append-digits N`, a word produces the original, one variant per rule
@@ -160,16 +165,18 @@ The checkpoint stores the verified frontier: the start of the earliest batch
 that has not finished. A resume starts at that batch. A hard kill loses at most
 one checkpoint interval plus the batches in flight.
 
-The file holds three lines:
+The file holds four lines:
 
 ```text
 brute-force
 5:0,0,0,0:1
 /absolute/path/to/document.pdf
+charset=303132333435363738396162...;min=1;max=8
 ```
 
-The lines are the source name, the source position and the target path. Resume
-refuses to start when the source or target differs.
+The lines are the source name, the source position, the target path, and the
+attack configuration signature (charset/mask/wordlist/rules). Resume refuses to
+start when the source, target, or configuration parameters differ.
 
 The program deletes the checkpoint when the search ends, whether it finds a
 password or exhausts the keyspace. Dictionary resume assumes the wordlist did
@@ -187,8 +194,8 @@ program may check some candidates twice.
 | `alnum` | Digits, lower and upper | 62 |
 | `all` | Digits, lower, upper and special | 93 |
 
-Any other value is a custom character set. Repeated characters only repeat
-work.
+Any other value is a custom character set. Duplicate characters are
+automatically deduplicated in order.
 
 ## Mutation rules
 
@@ -197,6 +204,7 @@ work.
 | Capitalize | `--capitalize` | `Password` |
 | Uppercase | `--upper` | `PASSWORD` |
 | Lowercase | `--lower` | `password` |
+| Toggle case | `--toggle-case` | `PASSWORD` |
 | L33t | `--l33t` | `p@$$w0rd` |
 | Reverse | `--reverse` | `drowssap` |
 | Duplicate | `--duplicate` | `passwordpassword` |
@@ -299,6 +307,7 @@ done
 | Owner-only PDF is not found | Add `--pdf-owner`. |
 | `Unsupported Office encryption version` | The file uses legacy CryptoAPI/ECMA-376 encryption. |
 | `Checkpoint belongs to target ...` | The checkpoint was made for another file. Use a new path. |
-| Resume misses a password | The wordlist or attack parameters changed between runs. |
+| `Checkpoint parameters do not match ...` | The charset, mask, wordlist, or rules changed since the checkpoint was saved. |
+| Resume misses a password | The wordlist contents changed on disk between runs. |
 | Office is slow | Every candidate costs about 100,000 hash iterations. Use a dictionary or hybrid attack. |
 | No progress bar | stdout is not a terminal. |

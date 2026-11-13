@@ -4,7 +4,7 @@
 
 ## Setup
 
-You need Rust 1.88 or newer, `rustfmt` and `clippy`:
+You need Rust 1.89 or newer, `rustfmt` and `clippy`:
 
 ```bash
 rustup component add rustfmt clippy
@@ -14,9 +14,8 @@ cargo build --release
 cargo test
 ```
 
-`./scripts/install-hooks.sh` installs an optional pre-commit hook for staged
-Rust changes. Use `git commit --no-verify` for documentation-only commits if
-the hook conflicts with a stash.
+`./scripts/install-hooks.sh` installs an optional pre-commit hook that runs
+`./scripts/fmt.sh --check --skip-tests` whenever Rust files are staged.
 
 ## Layout
 
@@ -25,7 +24,7 @@ src/
   main.rs          entry point and exit codes
   cli/mod.rs       clap definitions and run()
   engine/mod.rs    FIFO worker pool, adaptive batches, checkpoints
-  formats/         ZIP, PDF and Office verifiers
+  formats/         ZIP (zip/), PDF (pdf/) and Office (office.rs) verifiers
   generators/      dictionary, brute-force, mask and hybrid sources
   utils/           charsets and formatting
 tests/e2e.rs       end-to-end tests over examples/
@@ -39,7 +38,7 @@ scripts/           release, install, manifest and APT helpers
 
 ```bash
 cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
 cargo test
 cargo audit
 cargo machete
@@ -52,28 +51,35 @@ read-only pass.
 
 ## Architecture
 
-- `PasswordSource` produces candidates. `fill_batch` returns at most one batch
-  and never materializes the full keyspace.
-- `PasswordVerifier` checks a candidate. `quick_check` is a cheap filter, and
-  `verify` makes the final decision.
-- A generator thread sends batches through a bounded FIFO channel to a fixed
-  worker pool. FIFO order lets the checkpoint store the start of the earliest
-  unfinished batch.
-- The engine writes a checkpoint only after a batch finishes. The saved value is
+- `PasswordSource` produces candidates via `next_shard` (compact range descriptors
+  for brute-force, mask, and mmap dictionary slices) or `fill_batch` (flat
+  contiguous `CandidateBatch` buffer), never materializing the full keyspace.
+- `PasswordVerifier` checks candidates via `quick_check`, `verify`,
+  `verify_batch`, and `verify_prefix_group`.
+- A generator thread sends shards or batches through a bounded FIFO channel to a
+  fixed worker pool. FIFO order lets the checkpoint store the start of the
+  earliest unfinished item.
+- The engine writes a checkpoint only after an item finishes. The saved value is
   the verified frontier, not the generator's current position.
-- Batch size starts at 32, adjusts toward 250 ms of work, and caps at 4096.
-- `quick_check` filters only ZIP ZipCrypto. PDF and Office return `true` so the
-  engine does not repeat an expensive verification.
+- Batch size starts at 32, adjusts toward 250 ms of work, and caps at 65,536.
+- `quick_check` filters ZIP ZipCrypto (12-byte header) and WinZip AES (single
+  PBKDF2-HMAC-SHA1 block for the 2-byte verification value). PDF and Office use
+  the default `quick_check() -> true` and perform verification directly in
+  `verify_batch`, `verify_prefix_group`, and `verify`.
 
 ## Format verifiers
 
-- ZIP: reads every encrypted entry. ZipCrypto uses the 12-byte header check;
-  AES uses the `zip` crate. A password must open all encrypted entries.
-- PDF: parses the trailer, `/Encrypt` dictionary and `/ID`, then checks the
-  `/U` hash. `--pdf-owner` also checks `/O` and takes about three times as long.
-- Office: reads the Agile `EncryptionInfo` stream from the OLE2 container and
-  runs the iterated hash check. It encodes candidates as UTF-16LE, so Unicode
-  passwords work. The verifier rejects legacy CryptoAPI/ECMA-376 files.
+- ZIP (`src/formats/zip/`): reads every encrypted entry. ZipCrypto uses the
+  12-byte header check and incremental prefix-group key updates; AES uses a
+  single-block PBKDF2-HMAC-SHA1 filter before full entry decompression via the
+  `zip` crate. A password must open all encrypted entries.
+- PDF (`src/formats/pdf/`): parses the trailer, `/Encrypt` dictionary and `/ID`,
+  then checks the `/U` hash (with 4-way SIMD MD5 for R2–R4 and zero-allocation
+  stack buffers for R6 Algorithm 2.B). `--pdf-owner` also checks `/O`.
+- Office (`src/formats/office.rs`): reads the Agile `EncryptionInfo` stream from
+  the OLE2 container and runs the iterated hash check using low-level SHA
+  compression blocks. It encodes candidates as UTF-16LE, so Unicode passwords
+  work. The verifier rejects legacy CryptoAPI/ECMA-376 and Office 97–2003 files.
 
 ## Adding a format
 
@@ -84,7 +90,6 @@ read-only pass.
 
 ```rust
 impl PasswordVerifier for MyVerifier {
-    fn quick_check(&self, password: &[u8]) -> bool { true }
     fn verify(&self, password: &[u8]) -> bool { /* final check */ }
     fn format_name(&self) -> &'static str { "MyFormat" }
     fn encryption_info(&self) -> &str { "..." }
@@ -100,7 +105,8 @@ impl PasswordVerifier for MyVerifier {
 5. Add an e2e test.
 
 `checkpoint()` and `restore()` use an opaque string. The engine also stores the
-source name and canonical target path, and refuses a mismatched resume.
+source name, canonical target path, and `config_signature()`, and refuses a
+mismatched resume.
 
 ## Tests
 

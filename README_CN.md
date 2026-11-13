@@ -78,12 +78,12 @@ password-cracking -q -f document.zip dictionary -w passwords.txt
 
 | 格式 | 加密方式 | 速度 |
 |------|----------|------|
-| ZIP | ZipCrypto | 1100 万到 1150 万密码/秒 |
-| ZIP | AES-256 | 约 1.5 万密码/秒 |
-| PDF | RC4-128 | 51 万到 54 万密码/秒 |
-| PDF | AES-256 R6 | 约 7600 密码/秒 |
-| PDF（owner） | RC4-128 | 约 15 万密码/秒（`--pdf-owner`） |
-| Office | Agile AES-256 | 500 到 800 密码/秒 |
+| ZIP | ZipCrypto | 约 1.78 亿密码/秒 |
+| ZIP | AES-256 | 约 9.4 万密码/秒 |
+| PDF | RC4-128 | 约 68.8 万密码/秒 |
+| PDF | AES-256 R6 | 约 1.66 万密码/秒 |
+| PDF（owner） | RC4-128 | 约 22 万密码/秒（`--pdf-owner`） |
+| Office | Agile AES-256 | 600 到 800 密码/秒 |
 
 Office 对每个候选执行约 10 万次 SHA-512 迭代。破解 Office 文件应优先使用字典
 或混合攻击。加密参数和 CPU 型号都会改变实际速度。
@@ -94,18 +94,22 @@ Office 对每个候选执行约 10 万次 SHA-512 迭代。破解 Office 文件�
 CLI（clap）
   └── CrackerEngine
         ├── PasswordSource   字典 | 暴力 | Mask | 混合
-        │     └── fill_batch(max) ──► 有界 FIFO 通道
+        │     └── next_shard(max) / fill_batch(max) ──► 有界 FIFO 通道
         └── PasswordVerifier ZIP | PDF | Office
-              ├── quick_check()  低成本过滤（仅 ZIP）
-              └── verify()       完整密码校验
+              ├── quick_check()          低成本过滤（ZIP ZipCrypto 与 AES）
+              ├── verify_batch()         批量 / 4 路并行校验
+              ├── verify_prefix_group()  共享前缀组校验
+              └── verify()               完整密码校验
 ```
 
-生成线程按批填充候选，通过 FIFO 通道交给固定数量的 worker 线程。FIFO 顺序让
-检查点有明确含义：文件保存的是最早一个尚未完成批次的起点。批次大小在 32 到
-4096 之间调整，目标是每批约 250 毫秒。
+生成线程将紧凑分片（`WorkShard`）或扁平字节批次（`CandidateBatch`）通过有界
+FIFO 通道交给固定数量的 worker 线程。FIFO 顺序让检查点有明确含义：文件保存的
+是最早一个尚未完成批次的起点。批次大小在 32 到 65,536 之间自适应调整，目标是
+每批约 250 毫秒。
 
-引擎先调用 `quick_check`，再调用 `verify`。ZIP ZipCrypto 用 12 字节头检查快速
-排除错误密码。PDF 和 Office 的校验本身就是主要开销，因此跳过这层检查。
+`quick_check` 在完整解压前快速过滤 ZIP 候选：ZipCrypto 检查加密条目的 12 字节
+加密头，WinZip AES 仅计算包含 2 字节校验值的单个 PBKDF2-HMAC-SHA1 块。PDF 和
+Office 直接在 `verify_batch` / `verify_prefix_group` / `verify` 中执行批量与向量化校验。
 
 ## 文档
 

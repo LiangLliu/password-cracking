@@ -156,7 +156,8 @@ if command -v cargo-machete &> /dev/null; then
     if cargo machete; then
         print_success "没有发现未使用的依赖"
     else
-        print_warning "发现未使用的依赖，请考虑移除"
+        print_error "发现未使用的依赖，请移除后再继续"
+        exit 1
     fi
 else
     print_warning "cargo-machete 未安装，跳过依赖检查"
@@ -188,10 +189,10 @@ fi
 print_header "代码标记检查"
 
 print_step "检查 TODO 和 FIXME 标记..."
-TODO_COUNT=$(grep -rn "TODO\|FIXME" src/ 2>/dev/null | wc -l || echo "0")
+TODO_COUNT=$( (grep -rnE "TODO|FIXME" src/ 2>/dev/null || true) | wc -l | tr -d ' ' )
 if [ "$TODO_COUNT" -gt 0 ]; then
     print_warning "发现 $TODO_COUNT 个 TODO/FIXME 标记:"
-    grep -rn "TODO\|FIXME" src/ --color=always | head -10 || true
+    grep -rnE "TODO|FIXME" src/ --color=always | head -10 || true
     if [ "$TODO_COUNT" -gt 10 ]; then
         echo "... 还有 $((TODO_COUNT - 10)) 个标记"
     fi
@@ -207,7 +208,8 @@ if command -v cargo-audit &> /dev/null; then
     if cargo audit; then
         print_success "没有发现已知的安全漏洞"
     else
-        print_warning "发现安全问题，请查看上面的输出"
+        print_error "发现安全问题，请查看上面的输出"
+        exit 1
     fi
 else
     print_warning "cargo-audit 未安装，跳过安全检查"

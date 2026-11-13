@@ -80,12 +80,12 @@ Measured on an Apple M2 Pro (10 cores) with a release build:
 
 | Format | Encryption | Speed |
 |--------|------------|-------|
-| ZIP | ZipCrypto | 11.0M to 11.5M passwords/sec |
-| ZIP | AES-256 | about 15K passwords/sec |
-| PDF | RC4-128 | 510K to 540K passwords/sec |
-| PDF | AES-256 R6 | about 7.6K passwords/sec |
-| PDF (owner) | RC4-128 | about 150K passwords/sec (`--pdf-owner`) |
-| Office | Agile AES-256 | 500 to 800 passwords/sec |
+| ZIP | ZipCrypto | ~178M passwords/sec |
+| ZIP | AES-256 | ~94K passwords/sec |
+| PDF | RC4-128 | ~688K passwords/sec |
+| PDF | AES-256 R6 | ~16.6K passwords/sec |
+| PDF (owner) | RC4-128 | ~220K passwords/sec (`--pdf-owner`) |
+| Office | Agile AES-256 | ~600 to 800 passwords/sec |
 
 Office spends about 100,000 SHA-512 iterations on each candidate. Start with a
 dictionary or hybrid attack for Office files. Encryption settings and CPU
@@ -97,20 +97,25 @@ generation change these numbers.
 CLI (clap)
   └── CrackerEngine
         ├── PasswordSource   dictionary | brute-force | mask | hybrid
-        │     └── fill_batch(max) ──► bounded FIFO channel
+        │     └── next_shard(max) / fill_batch(max) ──► bounded FIFO channel
         └── PasswordVerifier ZIP | PDF | Office
-              ├── quick_check()  cheap filter (ZIP only)
-              └── verify()       full password check
+              ├── quick_check()          cheap filter (ZIP ZipCrypto & AES)
+              ├── verify_batch()         batch / 4-way SIMD verification
+              ├── verify_prefix_group()  shared-prefix group verification
+              └── verify()               full password check
 ```
 
-A generator thread fills bounded batches and sends them through a FIFO channel
-to a fixed pool of worker threads. FIFO order gives checkpoints a stable
-meaning: the file stores the start of the earliest batch that has not finished.
-Batch size adapts from 32 to 4096, targeting about 250 ms of work per batch.
+A generator thread emits compact work shards (`WorkShard`) or flat byte batches
+(`CandidateBatch`) through a bounded FIFO channel to a fixed pool of worker
+threads. FIFO order gives checkpoints a stable meaning: the file stores the
+start of the earliest shard or batch that has not finished. Batch size adapts
+from 32 to 65,536, targeting about 250 ms of work per item.
 
-The engine calls `quick_check` before `verify`. ZIP ZipCrypto uses a 12-byte
-header check to reject wrong passwords before full decryption. PDF and Office
-skip the cheap check because verification is already the only expensive step.
+`quick_check` filters ZIP candidates before full archive decompression:
+ZipCrypto checks the 12-byte encryption header across encrypted entries, and
+WinZip AES computes only the single PBKDF2-HMAC-SHA1 block holding the 2-byte
+password verification value. PDF and Office run their vectorized/cached
+verification directly in `verify_batch` / `verify_prefix_group` / `verify`.
 
 ## Documentation
 

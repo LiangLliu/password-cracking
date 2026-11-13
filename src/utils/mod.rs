@@ -31,6 +31,9 @@ pub fn validate_file(path: &Path) -> Result<()> {
 
 /// Validates that a wordlist path exists (file or directory).
 pub fn validate_wordlist(path: &Path) -> Result<()> {
+    if path == Path::new("-") {
+        return Ok(());
+    }
     if !path.exists() {
         bail!("Path does not exist: {}", path.display());
     }
@@ -44,9 +47,12 @@ pub fn validate_wordlist(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Formats a duration as `1h 2m 3s`.
+/// Formats a duration as `1h 2m 3s` (or `0.42s` for sub-second non-zero durations).
 pub fn format_duration(d: std::time::Duration) -> String {
     let s = d.as_secs();
+    if s == 0 && d.subsec_millis() > 0 {
+        return format!("{:.2}s", d.as_secs_f64());
+    }
     let (h, m, s) = (s / 3600, (s % 3600) / 60, s % 60);
     match h {
         0 if m == 0 => format!("{s}s"),
@@ -58,14 +64,14 @@ pub fn format_duration(d: std::time::Duration) -> String {
 /// Formats an integer with thousands separators.
 pub fn format_number(n: u64) -> String {
     let s = n.to_string();
-    let chars: Vec<char> = s.chars().collect();
-    let mut out = String::with_capacity(s.len() + s.len() / 3);
-    let len = chars.len();
-    for (i, c) in chars.iter().enumerate() {
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+    let mut out = String::with_capacity(len + (len - 1) / 3);
+    for (i, &b) in bytes.iter().enumerate() {
         if i > 0 && (len - i).is_multiple_of(3) {
             out.push(',');
         }
-        out.push(*c);
+        out.push(b as char);
     }
     out
 }
@@ -85,6 +91,8 @@ mod tests {
     #[test]
     fn duration_formatting() {
         use std::time::Duration;
+        assert_eq!(format_duration(Duration::ZERO), "0s");
+        assert_eq!(format_duration(Duration::from_millis(420)), "0.42s");
         assert_eq!(format_duration(Duration::from_secs(5)), "5s");
         assert_eq!(format_duration(Duration::from_secs(65)), "1m 5s");
         assert_eq!(format_duration(Duration::from_secs(3661)), "1h 1m 1s");

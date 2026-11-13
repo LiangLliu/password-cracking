@@ -39,35 +39,12 @@ print_header "运行代码检查"
 
 # 检查是否有 Rust 文件的更改
 if git diff --cached --name-only | grep -q '\.rs$'; then
-    print_warning "检测到 Rust 文件更改，运行代码检查..."
+    print_warning "检测到 Rust 文件更改，运行代码只读检查..."
 
-    # 暂存当前的更改
-    print_header "保存工作区状态"
-    # 创建一个临时的 stash，包含未暂存的更改
-    STASH_NAME="pre-commit-$(date +%s)"
-    git stash save --keep-index --include-untracked "$STASH_NAME" > /dev/null 2>&1 || true
-    STASHED=$?
-
-    # 运行格式化脚本（只对暂存的文件）
-    if ./scripts/fmt.sh --skip-tests; then
+    if ./scripts/fmt.sh --check --skip-tests; then
         print_success "代码检查通过"
-        CHECKS_PASSED=true
     else
         print_error "代码检查失败"
-        CHECKS_PASSED=false
-    fi
-
-    # 恢复工作区
-    if [ $STASHED -eq 0 ]; then
-        print_header "恢复工作区状态"
-        # 查找我们创建的 stash
-        STASH_ID=$(git stash list | grep "$STASH_NAME" | cut -d: -f1 | head -n1)
-        if [ -n "$STASH_ID" ]; then
-            git stash pop "$STASH_ID" > /dev/null 2>&1 || true
-        fi
-    fi
-
-    if [ "$CHECKS_PASSED" = false ]; then
         print_error "提交被阻止：代码不符合规范"
         echo ""
         echo "请运行以下命令修复问题："

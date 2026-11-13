@@ -4,7 +4,7 @@
 
 ## 环境
 
-需要 Rust 1.88 或更高版本，以及 `rustfmt` 和 `clippy`：
+需要 Rust 1.89 或更高版本，以及 `rustfmt` 和 `clippy`：
 
 ```bash
 rustup component add rustfmt clippy
@@ -14,9 +14,8 @@ cargo build --release
 cargo test
 ```
 
-`./scripts/install-hooks.sh` 会安装可选的 pre-commit 钩子，只检查暂存的 Rust
-改动。如果钩子的 stash 操作与文档提交冲突，可以使用
-`git commit --no-verify`。
+`./scripts/install-hooks.sh` 会安装可选的 pre-commit 钩子，在有暂存的 Rust 文件时运行
+`./scripts/fmt.sh --check --skip-tests`。
 
 ## 目录
 
@@ -25,7 +24,7 @@ src/
   main.rs          程序入口和退出码
   cli/mod.rs       clap 定义和 run()
   engine/mod.rs    FIFO worker 池、自适应批次、检查点
-  formats/         ZIP、PDF 和 Office 验证器
+  formats/         ZIP（zip/）、PDF（pdf/）和 Office（office.rs）验证器
   generators/      字典、暴力、Mask 和混合候选源
   utils/           字符集和格式化
 tests/e2e.rs       examples/ 的端到端测试
@@ -39,7 +38,7 @@ scripts/           发布、安装、manifest 和 APT 脚本
 
 ```bash
 cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings
 cargo test
 cargo audit
 cargo machete
@@ -52,25 +51,31 @@ cargo publish --dry-run --allow-dirty
 
 ## 架构
 
-- `PasswordSource` 生成候选。`fill_batch` 每次最多返回一批，不会把整个密钥
-  空间放进内存。
-- `PasswordVerifier` 校验候选。`quick_check` 是低成本过滤，`verify` 给出最终
-  结果。
-- 生成线程通过有界 FIFO 通道把批次交给固定数量的 worker 线程。FIFO 顺序让
-  检查点可以保存最早一个未完成批次的起点。
-- 引擎只在批次完成后写检查点。保存的是已验证前沿，不是生成器的当前位置。
-- 批次大小从 32 开始，按约 250 毫秒的目标调整，上限为 4096。
-- `quick_check` 只对 ZIP ZipCrypto 有效。PDF 和 Office 直接返回 `true`，避免
-  重复执行昂贵的校验。
+- `PasswordSource` 通过 `next_shard`（用于暴力、Mask 和 mmap 字典切片的紧凑区间描
+  述）或 `fill_batch`（扁平连续字节缓冲 `CandidateBatch`）生成候选，不会把整个密
+  钥空间放进内存。
+- `PasswordVerifier` 通过 `quick_check`、`verify`、`verify_batch` 和
+  `verify_prefix_group` 校验候选。
+- 生成线程通过有界 FIFO 通道把分片或批次交给固定数量的 worker 线程。FIFO 顺序让
+  检查点可以保存最早一个未完成任务的起点。
+- 引擎只在批次或分片完成后写检查点。保存的是已验证前沿，不是生成器的当前位置。
+- 批次大小从 32 开始，按约 250 毫秒的目标调整，上限为 65,536。
+- `quick_check` 对 ZIP ZipCrypto（12 字节加密头）和 WinZip AES（仅计算包含 2 字
+  节校验值的单个 PBKDF2-HMAC-SHA1 块）进行快速过滤。PDF 和 Office 使用默认的
+  `quick_check() -> true`，直接在 `verify_batch`、`verify_prefix_group` 和
+  `verify` 中完成校验。
 
 ## 格式验证
 
-- ZIP：读取所有加密条目。ZipCrypto 使用 12 字节头检查，AES 交给 `zip` crate。
-  密码必须能打开所有加密条目。
-- PDF：解析 trailer、`/Encrypt` 字典和 `/ID`，再检查 `/U` 哈希。
-  `--pdf-owner` 还会检查 `/O`，耗时约为原来的三倍。
-- Office：从 OLE2 容器读取 Agile `EncryptionInfo`，执行迭代哈希校验。候选按
-  UTF-16LE 编码，因此支持 Unicode 密码。旧版 CryptoAPI/ECMA-376 文件会被拒绝。
+- ZIP（`src/formats/zip/`）：读取所有加密条目。ZipCrypto 使用 12 字节头检查与前
+  缀组增量密钥更新；AES 先通过单块 PBKDF2-HMAC-SHA1 过滤，再由 `zip` crate 做完
+  整条目校验。密码必须能打开所有加密条目。
+- PDF（`src/formats/pdf/`）：解析 trailer、`/Encrypt` 字典和 `/ID`，再检查 `/U`
+  哈希（R2–R4 采用 4 路 SIMD MD5，R6 Algorithm 2.B 采用零分配栈缓冲）。
+  `--pdf-owner` 还会检查 `/O`。
+- Office（`src/formats/office.rs`）：从 OLE2 容器读取 Agile `EncryptionInfo`，使
+  用底层 SHA 压缩块执行迭代哈希校验。候选按 UTF-16LE 编码，因此支持 Unicode 密
+  码。旧版 CryptoAPI/ECMA-376 和 Office 97–2003 文件会被拒绝。
 
 ## 添加格式
 
@@ -81,7 +86,6 @@ cargo publish --dry-run --allow-dirty
 
 ```rust
 impl PasswordVerifier for MyVerifier {
-    fn quick_check(&self, password: &[u8]) -> bool { true }
     fn verify(&self, password: &[u8]) -> bool { /* 最终校验 */ }
     fn format_name(&self) -> &'static str { "MyFormat" }
     fn encryption_info(&self) -> &str { "..." }
@@ -96,8 +100,8 @@ impl PasswordVerifier for MyVerifier {
 4. 为顺序、边界和检查点往返添加单元测试。
 5. 添加端到端测试。
 
-`checkpoint()` 和 `restore()` 使用不透明字符串。引擎还会保存攻击模式名称和
-规范化后的目标路径，续跑时如果不一致就拒绝启动。
+`checkpoint()` 和 `restore()` 使用不透明字符串。引擎还会保存攻击模式名称、规范化
+后的目标路径以及 `config_signature()`，续跑时如果不一致就拒绝启动。
 
 ## 测试
 
